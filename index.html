@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mason Chambers</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f4f4f5;
+            color: #18181b;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            text-align: center;
+            background: white;
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            max-width: 400px;
+            width: 100%;
+        }
+        h1 { margin-bottom: 10px; font-size: 24px; }
+        p { color: #71717a; margin-bottom: 30px; line-height: 1.5; }
+        .link-button {
+            display: block;
+            width: 100%;
+            padding: 12px 0;
+            margin-bottom: 12px;
+            background-color: #18181b; /* Dark button */
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 500;
+            transition: opacity 0.2s;
+            box-sizing: border-box; /* Ensures padding doesn't break width */
+        }
+        .link-button:hover { opacity: 0.9; }
+        .link-button.secondary {
+            background-color: transparent;
+            border: 1px solid #e4e4e7;
+            color: #18181b;
+        }
+        .link-button.secondary:hover { background-color: #f4f4f5; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Mason Chambers</h1>
+        <p>Building things on the web. <br> Contact me below.</p>
+
+        <a href="mailto:mason@masonchambers.com" class="link-button">Email Me</a>
+        <a href="https://github.com/chambersmason" class="link-button secondary">GitHub</a>
+        <a href="https://www.linkedin.com/in/masonchambers/" class="link-button secondary">LinkedIn</a>
+    </div>
+
+</body>
+</html>
