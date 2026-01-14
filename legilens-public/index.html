@@ -1,0 +1,1480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Congress Funding Network | LegiLens</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0a0a0f;
+      color: #e0e0e0;
+      overflow: hidden;
+    }
+
+    .container { display: flex; height: 100vh; }
+
+    /* Sidebar */
+    .sidebar {
+      width: 340px;
+      background: #12121a;
+      border-right: 1px solid #2a2a3a;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .sidebar-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid #2a2a3a;
+    }
+
+    .sidebar-header h1 { font-size: 1.3rem; color: #fff; margin-bottom: 2px; }
+    .sidebar-header p { font-size: 0.8rem; color: #888; }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      flex-wrap: wrap;
+      border-bottom: 1px solid #2a2a3a;
+      background: #0d0d12;
+    }
+
+    .tab {
+      flex: 1 1 auto;
+      min-width: 70px;
+      padding: 10px 6px;
+      background: none;
+      border: none;
+      color: #666;
+      cursor: pointer;
+      font-size: 0.7rem;
+      transition: all 0.2s;
+      text-align: center;
+    }
+
+    .tab:hover { color: #fff; background: #1a1a2a; }
+    .tab.active { color: #60a5fa; border-bottom: 2px solid #60a5fa; background: #1a1a2a; }
+
+    /* Filters */
+    .filters {
+      padding: 12px 16px;
+      border-bottom: 1px solid #2a2a3a;
+      background: #0d0d12;
+    }
+
+    .filter-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .filter-row:last-child { margin-bottom: 0; }
+
+    select, input[type="text"] {
+      flex: 1;
+      padding: 7px 10px;
+      background: #1a1a2a;
+      border: 1px solid #2a2a3a;
+      border-radius: 5px;
+      color: #e0e0e0;
+      font-size: 0.8rem;
+    }
+
+    select:focus, input:focus { outline: none; border-color: #60a5fa; }
+
+    /* Range slider */
+    .range-container {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .range-container label {
+      font-size: 0.75rem;
+      color: #888;
+      white-space: nowrap;
+    }
+
+    .range-container input[type="range"] {
+      flex: 1;
+      -webkit-appearance: none;
+      background: #2a2a3a;
+      height: 4px;
+      border-radius: 2px;
+    }
+
+    .range-container input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px;
+      height: 14px;
+      background: #60a5fa;
+      border-radius: 50%;
+      cursor: pointer;
+    }
+
+    .range-value {
+      font-size: 0.8rem;
+      color: #60a5fa;
+      font-weight: 600;
+      min-width: 35px;
+      text-align: right;
+    }
+
+    /* Entity list */
+    .entity-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+    }
+
+    .entity-item {
+      padding: 10px 12px;
+      background: #1a1a2a;
+      border-radius: 6px;
+      margin-bottom: 6px;
+      cursor: pointer;
+      transition: all 0.2s;
+      border-left: 3px solid transparent;
+    }
+
+    .entity-item:hover { background: #252535; transform: translateX(3px); }
+    .entity-item.selected { background: #1e3a5f; border-left-color: #60a5fa; }
+    .entity-item.bipartisan { border-left-color: #a855f7; }
+    .entity-item.red { border-left-color: #ef4444; }
+    .entity-item.blue { border-left-color: #3b82f6; }
+
+    .entity-name { font-weight: 600; color: #fff; margin-bottom: 3px; font-size: 0.85rem; }
+    .entity-meta { font-size: 0.75rem; color: #888; }
+    .entity-amount { color: #4ade80; font-weight: 600; }
+    .entity-tag {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 0.65rem;
+      margin-left: 6px;
+    }
+    .entity-tag.bipartisan { background: #7c3aed33; color: #a855f7; }
+    .entity-tag.industry { background: #0d948033; color: #14b8a6; }
+
+    /* Main graph area */
+    .main { flex: 1; position: relative; overflow: hidden; }
+    #graph { width: 100%; height: 100%; }
+
+    /* Detail panel */
+    .detail-panel {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      width: 360px;
+      max-height: calc(100vh - 40px);
+      background: #12121a;
+      border: 1px solid #2a2a3a;
+      border-radius: 12px;
+      overflow: hidden;
+      display: none;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+      z-index: 100;
+    }
+
+    .detail-panel.visible { display: block; }
+
+    .detail-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid #2a2a3a;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+
+    .detail-header h2 { font-size: 1rem; color: #fff; margin-bottom: 4px; }
+
+    .party-badge {
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      font-weight: 600;
+    }
+
+    .party-badge.D { background: #1e40af; color: #93c5fd; }
+    .party-badge.R { background: #991b1b; color: #fca5a5; }
+    .party-badge.I { background: #4a5568; color: #e2e8f0; }
+    .party-badge.contributor { background: #065f46; color: #6ee7b7; }
+    .party-badge.bipartisan { background: #5b21b6; color: #c4b5fd; }
+
+    .close-btn {
+      background: none;
+      border: none;
+      color: #888;
+      cursor: pointer;
+      font-size: 1.2rem;
+      padding: 4px;
+    }
+
+    .close-btn:hover { color: #fff; }
+
+    .detail-content {
+      padding: 16px 20px;
+      max-height: 450px;
+      overflow-y: auto;
+    }
+
+    .detail-section { margin-bottom: 16px; }
+
+    .detail-section h3 {
+      font-size: 0.7rem;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 8px;
+    }
+
+    .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+    .stat-box {
+      background: #1a1a2a;
+      padding: 10px;
+      border-radius: 6px;
+    }
+
+    .stat-value { font-size: 1rem; font-weight: 600; color: #fff; }
+    .stat-label { font-size: 0.7rem; color: #888; }
+
+    .connection-list { max-height: 180px; overflow-y: auto; }
+
+    .connection-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 10px;
+      background: #1a1a2a;
+      border-radius: 5px;
+      margin-bottom: 4px;
+      font-size: 0.8rem;
+    }
+
+    .connection-item .name { color: #e0e0e0; }
+    .connection-item .amount { color: #4ade80; font-weight: 600; }
+    .connection-item .party-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 6px;
+    }
+
+    /* Chat Panel - Right Sidebar */
+    .chat-panel {
+      width: 340px;
+      background: #12121a;
+      border-left: 1px solid #2a2a3a;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      flex-shrink: 0;
+    }
+
+    .chat-panel.collapsed {
+      width: 50px;
+    }
+
+    .chat-panel.collapsed .chat-header h3,
+    .chat-panel.collapsed .chat-api-setup,
+    .chat-panel.collapsed .chat-messages,
+    .chat-panel.collapsed .chat-input-area {
+      display: none;
+    }
+
+    .chat-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid #2a2a3a;
+    }
+
+    .chat-header h3 { font-size: 1.1rem; color: #fff; margin-bottom: 2px; }
+    .chat-header p { font-size: 0.8rem; color: #888; margin-bottom: 10px; }
+
+    .chat-header-buttons {
+      display: flex;
+      gap: 8px;
+    }
+
+    .chat-toggle {
+      background: #1a1a2a;
+      border: 1px solid #2a2a3a;
+      color: #888;
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.75rem;
+    }
+
+    .chat-toggle:hover { color: #fff; border-color: #60a5fa; }
+
+    .chat-api-setup {
+      padding: 16px;
+      border-bottom: 1px solid #2a2a3a;
+    }
+
+    .chat-api-setup label {
+      display: block;
+      font-size: 0.75rem;
+      color: #888;
+      margin-bottom: 6px;
+    }
+
+    .chat-api-setup select, .chat-api-setup input {
+      width: 100%;
+      margin-bottom: 8px;
+    }
+
+    .chat-api-setup .api-status {
+      font-size: 0.75rem;
+      padding: 6px 10px;
+      border-radius: 4px;
+      background: #1a1a2a;
+    }
+
+    .chat-api-setup .api-status.connected { color: #4ade80; }
+    .chat-api-setup .api-status.disconnected { color: #f87171; }
+
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+    }
+
+    .chat-message {
+      margin-bottom: 10px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+
+    .chat-message.user {
+      background: #1e3a5f;
+      margin-left: 40px;
+      border-radius: 8px 8px 0 8px;
+    }
+
+    .chat-message.assistant {
+      background: #1a1a2a;
+      margin-right: 20px;
+      border-radius: 8px 8px 8px 0;
+    }
+
+    .chat-message.system {
+      background: #1a1a25;
+      font-size: 0.78rem;
+      color: #888;
+      border-left: 2px solid #3b82f6;
+    }
+
+    .chat-input-area {
+      padding: 12px;
+      border-top: 1px solid #2a2a3a;
+      display: flex;
+      gap: 8px;
+    }
+
+    .chat-input-area input {
+      flex: 1;
+    }
+
+    .chat-input-area button {
+      padding: 8px 16px;
+      background: #3b82f6;
+      border: none;
+      border-radius: 5px;
+      color: #fff;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+
+    .chat-input-area button:hover { background: #2563eb; }
+    .chat-input-area button:disabled { background: #4a5568; cursor: not-allowed; }
+
+    /* Legend */
+    .legend {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      background: #12121a;
+      border: 1px solid #2a2a3a;
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .legend-title {
+      font-size: 0.7rem;
+      color: #888;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+      font-size: 0.75rem;
+    }
+
+    .legend-shape { width: 14px; height: 14px; }
+    .legend-shape.circle { border-radius: 50%; }
+    .legend-shape.square { border-radius: 2px; }
+
+    /* Stats bar */
+    .stats-bar {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      max-width: 500px;
+    }
+
+    .stat-chip {
+      background: #12121a;
+      border: 1px solid #2a2a3a;
+      border-radius: 16px;
+      padding: 6px 12px;
+      font-size: 0.75rem;
+    }
+
+    .stat-chip strong { color: #60a5fa; }
+
+    /* Loading */
+    .loading {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+    }
+
+    .spinner {
+      width: 36px;
+      height: 36px;
+      border: 3px solid #2a2a3a;
+      border-top-color: #60a5fa;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 12px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Tooltip */
+    .tooltip {
+      position: absolute;
+      background: #1a1a2a;
+      border: 1px solid #2a2a3a;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 0.8rem;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s;
+      z-index: 1000;
+      max-width: 220px;
+    }
+
+    .tooltip.visible { opacity: 1; }
+    .tooltip-name { font-weight: 600; color: #fff; margin-bottom: 3px; }
+    .tooltip-detail { color: #888; font-size: 0.75rem; }
+
+    /* Insights panel */
+    .insights-panel {
+      padding: 12px;
+      background: #0d0d12;
+      border-bottom: 1px solid #2a2a3a;
+      display: none;
+    }
+
+    .insights-panel.visible { display: block; }
+
+    .insight-card {
+      background: #1a1a2a;
+      border-radius: 6px;
+      padding: 10px 12px;
+      margin-bottom: 8px;
+      border-left: 3px solid #f59e0b;
+    }
+
+    .insight-card h4 {
+      font-size: 0.8rem;
+      color: #f59e0b;
+      margin-bottom: 4px;
+    }
+
+    .insight-card p {
+      font-size: 0.75rem;
+      color: #ccc;
+    }
+
+    /* Graph highlight states */
+    .link-highlighted {
+      stroke: #60a5fa !important;
+      stroke-opacity: 1 !important;
+      stroke-width: 3px !important;
+    }
+
+    .link-dimmed {
+      stroke-opacity: 0.08 !important;
+    }
+
+    .node-dimmed circle,
+    .node-dimmed rect {
+      opacity: 0.15;
+    }
+
+    .node-highlighted circle,
+    .node-highlighted rect {
+      stroke: #60a5fa !important;
+      stroke-width: 3px !important;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <div class="sidebar-header">
+        <h1>Congress Funding Network</h1>
+        <p>2024 Election Cycle • Transparency Explorer</p>
+      </div>
+
+      <div class="tabs">
+        <button class="tab active" data-view="pacs">PACs</button>
+        <button class="tab" data-view="employers">Employers</button>
+        <button class="tab" data-view="bipartisan">Bipartisan</button>
+        <button class="tab" data-view="shared">Shared</button>
+        <button class="tab" data-view="members">Members</button>
+      </div>
+
+      <div class="filters">
+        <div class="filter-row">
+          <select id="chamber-filter">
+            <option value="all">All Chambers</option>
+            <option value="senate">Senate</option>
+            <option value="house">House</option>
+          </select>
+          <select id="party-filter">
+            <option value="all">All Parties</option>
+            <option value="D">Democrat</option>
+            <option value="R">Republican</option>
+          </select>
+        </div>
+        <div class="filter-row">
+          <input type="text" id="search" placeholder="Search members or contributors...">
+        </div>
+        <div class="filter-row range-container">
+          <label>Show:</label>
+          <input type="range" id="count-slider" min="10" max="500" value="50" step="10">
+          <span class="range-value" id="count-value">50</span>
+        </div>
+        <div class="filter-row range-container">
+          <label>Members:</label>
+          <input type="range" id="member-slider" min="20" max="540" value="100" step="20">
+          <span class="range-value" id="member-value">100</span>
+        </div>
+      </div>
+
+      <div class="insights-panel" id="insights-panel">
+        <!-- Dynamic insights -->
+      </div>
+
+      <div class="entity-list" id="entity-list"></div>
+    </div>
+
+    <!-- Main Graph -->
+    <div class="main">
+      <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <p>Loading funding data...</p>
+      </div>
+
+      <svg id="graph"></svg>
+
+      <div class="stats-bar" id="stats-bar">
+        <div class="stat-chip"><strong id="total-funding">$0</strong> Total</div>
+        <div class="stat-chip"><strong id="node-count">0</strong> Nodes</div>
+        <div class="stat-chip"><strong id="link-count">0</strong> Connections</div>
+      </div>
+
+      <div class="legend">
+        <div class="legend-title">Legend</div>
+        <div class="legend-item">
+          <div class="legend-shape circle" style="background: #3b82f6;"></div>
+          <span>Democrat</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-shape circle" style="background: #ef4444;"></div>
+          <span>Republican</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-shape square" style="background: #10b981;"></div>
+          <span>Contributor</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-shape square" style="background: #a855f7;"></div>
+          <span>Bipartisan Donor</span>
+        </div>
+      </div>
+
+      <!-- Detail Panel -->
+      <div class="detail-panel" id="detail-panel">
+        <div class="detail-header">
+          <div>
+            <h2 id="detail-name">Entity Name</h2>
+            <span class="party-badge" id="detail-badge">D</span>
+          </div>
+          <button class="close-btn" onclick="closeDetail()">&times;</button>
+        </div>
+        <div class="detail-content" id="detail-content"></div>
+      </div>
+
+      <div class="tooltip" id="tooltip">
+        <div class="tooltip-name"></div>
+        <div class="tooltip-detail"></div>
+      </div>
+    </div>
+
+    <!-- Chat Panel - Right Sidebar -->
+    <div class="chat-panel" id="chat-panel">
+      <div class="chat-header">
+        <h3>AI Assistant</h3>
+        <p>Ask questions about the data</p>
+        <div class="chat-header-buttons">
+          <button class="chat-toggle" onclick="toggleChatSetup()">API Setup</button>
+        </div>
+      </div>
+
+      <div class="chat-api-setup" id="chat-api-setup" style="display: none;">
+        <label>Provider</label>
+        <select id="llm-provider">
+          <option value="anthropic">Anthropic (Claude)</option>
+          <option value="openai">OpenAI (GPT-4)</option>
+        </select>
+        <label>API Key</label>
+        <input type="password" id="api-key" placeholder="Enter your API key...">
+        <button class="chat-toggle" onclick="saveApiKey()" style="width: 100%; margin-top: 4px;">Save Key</button>
+        <div class="api-status disconnected" id="api-status">Not connected</div>
+      </div>
+
+      <div class="chat-messages" id="chat-messages">
+        <div class="chat-message system">
+Click "API Setup" to add your Claude or OpenAI key, then ask questions like:
+
+• Who are the biggest bipartisan donors?
+• Which tech companies fund both parties?
+• Show me the top 5 Wall Street donors
+• Compare Cruz and Schumer's funding sources
+        </div>
+      </div>
+
+      <div class="chat-input-area">
+        <input type="text" id="chat-input" placeholder="Ask about the data..." onkeypress="if(event.key==='Enter')sendMessage()">
+        <button onclick="sendMessage()" id="send-btn">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // State
+    let fundingData = null;
+    let graphData = { nodes: [], links: [] };
+    let simulation = null;
+    let currentView = 'pacs';
+    let apiKey = localStorage.getItem('llm_api_key') || '';
+    let llmProvider = localStorage.getItem('llm_provider') || 'anthropic';
+
+    const partyColors = { 'D': '#3b82f6', 'R': '#ef4444', 'I': '#8b5cf6', 'ID': '#3b82f6', 'IR': '#ef4444' };
+    const contributorColor = '#10b981';
+    const bipartisanColor = '#a855f7';
+
+    function formatMoney(amount) {
+      if (amount >= 1e9) return `$${(amount / 1e9).toFixed(2)}B`;
+      if (amount >= 1e6) return `$${(amount / 1e6).toFixed(2)}M`;
+      if (amount >= 1e3) return `$${(amount / 1e3).toFixed(1)}K`;
+      return `$${amount.toFixed(0)}`;
+    }
+
+    // Load data
+    async function loadData() {
+      try {
+        const response = await fetch('data/congress-funding.json');
+        fundingData = await response.json();
+        document.getElementById('loading').style.display = 'none';
+
+        // Restore API key
+        if (apiKey) {
+          document.getElementById('api-key').value = '••••••••';
+          document.getElementById('api-status').textContent = 'Key saved';
+          document.getElementById('api-status').className = 'api-status connected';
+        }
+        document.getElementById('llm-provider').value = llmProvider;
+
+        initializeGraph();
+        updateStats();
+        updateEntityList();
+        updateInsights();
+      } catch (err) {
+        console.error('Failed to load data:', err);
+        document.getElementById('loading').innerHTML = '<p style="color: #ef4444;">Failed to load data</p>';
+      }
+    }
+
+    // Get filter values
+    function getFilters() {
+      return {
+        chamber: document.getElementById('chamber-filter').value,
+        party: document.getElementById('party-filter').value,
+        search: document.getElementById('search').value.toLowerCase(),
+        contributorCount: parseInt(document.getElementById('count-slider').value),
+        memberCount: parseInt(document.getElementById('member-slider').value)
+      };
+    }
+
+    // Filter members
+    function getFilteredMembers() {
+      const f = getFilters();
+      return fundingData.members.filter(m => {
+        if (f.chamber !== 'all' && m.chamber !== f.chamber) return false;
+        if (f.party !== 'all' && m.party !== f.party) return false;
+        if (f.search && !m.name.toLowerCase().includes(f.search)) return false;
+        return true;
+      }).slice(0, f.memberCount);
+    }
+
+    // Build graph based on view
+    function buildGraphData() {
+      const nodes = [];
+      const links = [];
+      const nodeMap = new Map();
+      const f = getFilters();
+      const members = getFilteredMembers();
+
+      // Add member nodes
+      members.forEach(m => {
+        const nodeId = `member-${m.bioguideId}`;
+        nodes.push({
+          id: nodeId,
+          type: 'member',
+          data: m,
+          name: m.name,
+          party: m.party,
+          radius: Math.max(6, Math.min(20, Math.sqrt(m.finance.totalReceipts / 1e6) * 1.5))
+        });
+        nodeMap.set(nodeId, nodes.length - 1);
+      });
+
+      if (currentView === 'pacs') {
+        buildPACGraph(nodes, links, nodeMap, members, f);
+      } else if (currentView === 'employers') {
+        buildEmployerGraph(nodes, links, nodeMap, members, f);
+      } else if (currentView === 'bipartisan') {
+        buildBipartisanGraph(nodes, links, nodeMap, members, f);
+      } else if (currentView === 'shared') {
+        buildSharedDonorGraph(nodes, links, nodeMap, members, f);
+      }
+
+      return { nodes, links };
+    }
+
+    function buildPACGraph(nodes, links, nodeMap, members, f) {
+      const pacTotals = new Map();
+      members.forEach(m => {
+        if (!m.pacDetails?.topPACs) return;
+        m.pacDetails.topPACs.forEach(pac => {
+          const existing = pacTotals.get(pac.name) || { total: 0, members: [], dems: 0, reps: 0 };
+          existing.total += pac.total;
+          existing.members.push({ member: m, amount: pac.total });
+          if (m.party === 'D') existing.dems++;
+          else if (m.party === 'R') existing.reps++;
+          pacTotals.set(pac.name, existing);
+        });
+      });
+
+      const topPACs = Array.from(pacTotals.entries())
+        .filter(([_, d]) => d.members.length >= 2)
+        .sort((a, b) => b[1].total - a[1].total)
+        .slice(0, f.contributorCount);
+
+      addContributorNodes(nodes, links, nodeMap, topPACs, 'pac');
+    }
+
+    function buildEmployerGraph(nodes, links, nodeMap, members, f) {
+      const empTotals = new Map();
+      const exclude = ['RETIRED', 'SELF-EMPLOYED', 'HOMEMAKER', 'NOT EMPLOYED', 'SELF'];
+      members.forEach(m => {
+        if (!m.individualDonors?.topEmployers) return;
+        m.individualDonors.topEmployers.filter(e => !exclude.includes(e.name)).forEach(emp => {
+          const existing = empTotals.get(emp.name) || { total: 0, members: [], dems: 0, reps: 0 };
+          existing.total += emp.total;
+          existing.members.push({ member: m, amount: emp.total });
+          if (m.party === 'D') existing.dems++;
+          else if (m.party === 'R') existing.reps++;
+          empTotals.set(emp.name, existing);
+        });
+      });
+
+      const topEmps = Array.from(empTotals.entries())
+        .filter(([_, d]) => d.members.length >= 2)
+        .sort((a, b) => b[1].total - a[1].total)
+        .slice(0, f.contributorCount);
+
+      addContributorNodes(nodes, links, nodeMap, topEmps, 'emp');
+    }
+
+    function buildBipartisanGraph(nodes, links, nodeMap, members, f) {
+      // Find contributors that give to BOTH parties
+      const contributorData = new Map();
+
+      members.forEach(m => {
+        const sources = [
+          ...(m.pacDetails?.topPACs || []).map(p => ({ name: p.name, amount: p.total, type: 'pac' })),
+          ...(m.individualDonors?.topEmployers || [])
+            .filter(e => !['RETIRED', 'SELF-EMPLOYED', 'HOMEMAKER', 'NOT EMPLOYED', 'SELF'].includes(e.name))
+            .map(e => ({ name: e.name, amount: e.total, type: 'emp' }))
+        ];
+
+        sources.forEach(src => {
+          const existing = contributorData.get(src.name) || { total: 0, members: [], dems: 0, reps: 0, demAmount: 0, repAmount: 0 };
+          existing.total += src.amount;
+          existing.members.push({ member: m, amount: src.amount });
+          if (m.party === 'D') { existing.dems++; existing.demAmount += src.amount; }
+          else if (m.party === 'R') { existing.reps++; existing.repAmount += src.amount; }
+          contributorData.set(src.name, existing);
+        });
+      });
+
+      // Filter to only bipartisan (gives to both)
+      const bipartisan = Array.from(contributorData.entries())
+        .filter(([_, d]) => d.dems >= 2 && d.reps >= 2)
+        .sort((a, b) => b[1].total - a[1].total)
+        .slice(0, f.contributorCount);
+
+      bipartisan.forEach(([name, data]) => {
+        const nodeId = `bi-${name}`;
+        nodes.push({
+          id: nodeId,
+          type: 'contributor',
+          subtype: 'bipartisan',
+          name: name,
+          total: data.total,
+          memberCount: data.members.length,
+          dems: data.dems,
+          reps: data.reps,
+          demAmount: data.demAmount,
+          repAmount: data.repAmount,
+          radius: Math.max(10, Math.min(35, Math.sqrt(data.total / 1e4)))
+        });
+        nodeMap.set(nodeId, nodes.length - 1);
+
+        data.members.forEach(({ member, amount }) => {
+          const memberNodeId = `member-${member.bioguideId}`;
+          if (nodeMap.has(memberNodeId)) {
+            links.push({ source: nodeId, target: memberNodeId, value: amount });
+          }
+        });
+      });
+    }
+
+    function buildSharedDonorGraph(nodes, links, nodeMap, members, f) {
+      // Find donors shared between specific members (top funded from each party)
+      const topDems = members.filter(m => m.party === 'D').slice(0, 10);
+      const topReps = members.filter(m => m.party === 'R').slice(0, 10);
+      const focusMembers = [...topDems, ...topReps];
+
+      const sharedDonors = new Map();
+
+      focusMembers.forEach(m => {
+        const sources = [
+          ...(m.pacDetails?.topPACs || []).slice(0, 15).map(p => ({ name: p.name, amount: p.total })),
+          ...(m.individualDonors?.topEmployers || [])
+            .filter(e => !['RETIRED', 'SELF-EMPLOYED', 'HOMEMAKER', 'NOT EMPLOYED', 'SELF'].includes(e.name))
+            .slice(0, 10)
+            .map(e => ({ name: e.name, amount: e.total }))
+        ];
+
+        sources.forEach(src => {
+          const existing = sharedDonors.get(src.name) || { total: 0, members: new Set(), connections: [] };
+          existing.total += src.amount;
+          existing.members.add(m.bioguideId);
+          existing.connections.push({ member: m, amount: src.amount });
+          sharedDonors.set(src.name, existing);
+        });
+      });
+
+      // Only show donors connected to 3+ members
+      const shared = Array.from(sharedDonors.entries())
+        .filter(([_, d]) => d.members.size >= 3)
+        .sort((a, b) => b[1].members.size - a[1].members.size)
+        .slice(0, f.contributorCount);
+
+      shared.forEach(([name, data]) => {
+        const nodeId = `shared-${name}`;
+        nodes.push({
+          id: nodeId,
+          type: 'contributor',
+          subtype: 'shared',
+          name: name,
+          total: data.total,
+          memberCount: data.members.size,
+          radius: Math.max(12, Math.min(35, data.members.size * 3))
+        });
+        nodeMap.set(nodeId, nodes.length - 1);
+
+        data.connections.forEach(({ member, amount }) => {
+          const memberNodeId = `member-${member.bioguideId}`;
+          if (nodeMap.has(memberNodeId)) {
+            links.push({ source: nodeId, target: memberNodeId, value: amount });
+          }
+        });
+      });
+    }
+
+    function addContributorNodes(nodes, links, nodeMap, contributors, prefix) {
+      contributors.forEach(([name, data]) => {
+        const isBipartisan = data.dems > 0 && data.reps > 0;
+        const nodeId = `${prefix}-${name}`;
+        nodes.push({
+          id: nodeId,
+          type: 'contributor',
+          subtype: isBipartisan ? 'bipartisan' : 'regular',
+          name: name,
+          total: data.total,
+          memberCount: data.members.length,
+          dems: data.dems,
+          reps: data.reps,
+          radius: Math.max(8, Math.min(30, Math.sqrt(data.total / 1e4)))
+        });
+        nodeMap.set(nodeId, nodes.length - 1);
+
+        data.members.forEach(({ member, amount }) => {
+          const memberNodeId = `member-${member.bioguideId}`;
+          if (nodeMap.has(memberNodeId)) {
+            links.push({ source: nodeId, target: memberNodeId, value: amount });
+          }
+        });
+      });
+    }
+
+    // Initialize graph
+    function initializeGraph() {
+      const svg = d3.select('#graph');
+      const width = svg.node().parentElement.clientWidth;
+      const height = svg.node().parentElement.clientHeight;
+      svg.attr('width', width).attr('height', height);
+      svg.selectAll('*').remove();
+
+      graphData = buildGraphData();
+
+      const g = svg.append('g').attr('class', 'graph-container');
+
+      const zoom = d3.zoom()
+        .scaleExtent([0.1, 5])
+        .on('zoom', (event) => g.attr('transform', event.transform));
+      svg.call(zoom);
+
+      // Links
+      const link = g.append('g').attr('class', 'links')
+        .selectAll('line')
+        .data(graphData.links)
+        .join('line')
+        .attr('stroke', '#4a5568')
+        .attr('stroke-opacity', 0.3)
+        .attr('stroke-width', d => Math.max(0.5, Math.min(4, Math.sqrt(d.value / 1e4))));
+
+      // Nodes
+      const node = g.append('g').attr('class', 'nodes')
+        .selectAll('g')
+        .data(graphData.nodes)
+        .join('g')
+        .call(d3.drag()
+          .on('start', dragstarted)
+          .on('drag', dragged)
+          .on('end', dragended));
+
+      node.each(function(d) {
+        const el = d3.select(this);
+        if (d.type === 'member') {
+          el.append('circle')
+            .attr('r', d.radius)
+            .attr('fill', partyColors[d.party] || '#888')
+            .attr('stroke', '#fff')
+            .attr('stroke-width', 1);
+        } else {
+          const color = d.subtype === 'bipartisan' ? bipartisanColor : contributorColor;
+          el.append('rect')
+            .attr('width', d.radius * 2)
+            .attr('height', d.radius * 2)
+            .attr('x', -d.radius)
+            .attr('y', -d.radius)
+            .attr('rx', 3)
+            .attr('fill', color)
+            .attr('stroke', '#fff')
+            .attr('stroke-width', 1);
+        }
+      });
+
+      node.filter(d => d.radius > 12)
+        .append('text')
+        .attr('dy', d => d.radius + 10)
+        .attr('text-anchor', 'middle')
+        .attr('fill', '#666')
+        .attr('font-size', '9px')
+        .text(d => (d.type === 'member' ? d.data.lastName : d.name).substring(0, 12));
+
+      node.on('mouseover', showTooltip)
+          .on('mouseout', hideTooltip)
+          .on('click', (event, d) => { event.stopPropagation(); showDetail(event, d); });
+
+      // Click on background to clear selection
+      svg.on('click', () => { closeDetail(); });
+
+      simulation = d3.forceSimulation(graphData.nodes)
+        .force('link', d3.forceLink(graphData.links).id(d => d.id).distance(80).strength(0.3))
+        .force('charge', d3.forceManyBody().strength(-100))
+        .force('center', d3.forceCenter(width / 2, height / 2))
+        .force('collision', d3.forceCollide().radius(d => d.radius + 3));
+
+      simulation.on('tick', () => {
+        link.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+            .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+        node.attr('transform', d => `translate(${d.x},${d.y})`);
+      });
+
+      updateStats();
+    }
+
+    function dragstarted(event) {
+      if (!event.active) simulation.alphaTarget(0.3).restart();
+      event.subject.fx = event.subject.x;
+      event.subject.fy = event.subject.y;
+    }
+
+    function dragged(event) {
+      event.subject.fx = event.x;
+      event.subject.fy = event.y;
+    }
+
+    function dragended(event) {
+      if (!event.active) simulation.alphaTarget(0);
+      event.subject.fx = null;
+      event.subject.fy = null;
+    }
+
+    function showTooltip(event, d) {
+      const tooltip = document.getElementById('tooltip');
+      tooltip.querySelector('.tooltip-name').textContent = d.name;
+      let detail = d.type === 'member'
+        ? `${d.data.chamber === 'senate' ? 'Sen.' : 'Rep.'} (${d.party}-${d.data.state}) • ${formatMoney(d.data.finance.totalReceipts)}`
+        : `${formatMoney(d.total)} → ${d.memberCount} members${d.subtype === 'bipartisan' ? ' (Bipartisan)' : ''}`;
+      tooltip.querySelector('.tooltip-detail').textContent = detail;
+      tooltip.style.left = (event.pageX + 10) + 'px';
+      tooltip.style.top = (event.pageY - 10) + 'px';
+      tooltip.classList.add('visible');
+    }
+
+    function hideTooltip() {
+      document.getElementById('tooltip').classList.remove('visible');
+    }
+
+    function highlightNode(nodeId) {
+      const svg = d3.select('#graph');
+
+      // Get connected node IDs
+      const connectedNodes = new Set();
+      connectedNodes.add(nodeId);
+
+      graphData.links.forEach(l => {
+        const sourceId = typeof l.source === 'object' ? l.source.id : l.source;
+        const targetId = typeof l.target === 'object' ? l.target.id : l.target;
+        if (sourceId === nodeId) connectedNodes.add(targetId);
+        if (targetId === nodeId) connectedNodes.add(sourceId);
+      });
+
+      // Highlight connected links
+      svg.selectAll('.links line')
+        .classed('link-highlighted', l => {
+          const sourceId = typeof l.source === 'object' ? l.source.id : l.source;
+          const targetId = typeof l.target === 'object' ? l.target.id : l.target;
+          return sourceId === nodeId || targetId === nodeId;
+        })
+        .classed('link-dimmed', l => {
+          const sourceId = typeof l.source === 'object' ? l.source.id : l.source;
+          const targetId = typeof l.target === 'object' ? l.target.id : l.target;
+          return sourceId !== nodeId && targetId !== nodeId;
+        });
+
+      // Highlight connected nodes
+      svg.selectAll('.nodes g')
+        .classed('node-highlighted', n => n.id === nodeId)
+        .classed('node-dimmed', n => !connectedNodes.has(n.id));
+    }
+
+    function clearHighlights() {
+      const svg = d3.select('#graph');
+      svg.selectAll('.links line')
+        .classed('link-highlighted', false)
+        .classed('link-dimmed', false);
+      svg.selectAll('.nodes g')
+        .classed('node-highlighted', false)
+        .classed('node-dimmed', false);
+    }
+
+    function showDetail(event, d) {
+      const panel = document.getElementById('detail-panel');
+      document.getElementById('detail-name').textContent = d.name;
+      const badge = document.getElementById('detail-badge');
+      const content = document.getElementById('detail-content');
+
+      if (d.type === 'member') {
+        const m = d.data;
+        badge.textContent = `${m.party}-${m.state}`;
+        badge.className = `party-badge ${m.party}`;
+        content.innerHTML = `
+          <div class="detail-section">
+            <h3>Financial Summary</h3>
+            <div class="stat-grid">
+              <div class="stat-box"><div class="stat-value">${formatMoney(m.finance.totalReceipts)}</div><div class="stat-label">Total Raised</div></div>
+              <div class="stat-box"><div class="stat-value">${formatMoney(m.finance.individualContributions)}</div><div class="stat-label">Individuals</div></div>
+              <div class="stat-box"><div class="stat-value">${formatMoney(m.finance.pacContributions)}</div><div class="stat-label">PACs</div></div>
+              <div class="stat-box"><div class="stat-value">${formatMoney(m.finance.cashOnHand)}</div><div class="stat-label">Cash on Hand</div></div>
+            </div>
+          </div>
+          ${m.pacDetails?.topPACs?.length ? `<div class="detail-section"><h3>Top PAC Contributors</h3><div class="connection-list">${m.pacDetails.topPACs.slice(0, 8).map(p => `<div class="connection-item"><span class="name">${p.name.substring(0, 28)}</span><span class="amount">${formatMoney(p.total)}</span></div>`).join('')}</div></div>` : ''}
+          ${m.individualDonors?.topEmployers?.length ? `<div class="detail-section"><h3>Top Employer Sources</h3><div class="connection-list">${m.individualDonors.topEmployers.slice(0, 8).map(e => `<div class="connection-item"><span class="name">${e.name.substring(0, 28)}</span><span class="amount">${formatMoney(e.total)}</span></div>`).join('')}</div></div>` : ''}
+        `;
+      } else {
+        badge.textContent = d.subtype === 'bipartisan' ? 'Bipartisan' : 'Contributor';
+        badge.className = `party-badge ${d.subtype === 'bipartisan' ? 'bipartisan' : 'contributor'}`;
+
+        const connections = graphData.links
+          .filter(l => l.source.id === d.id || l.target.id === d.id)
+          .map(l => ({ member: l.source.id === d.id ? l.target : l.source, amount: l.value }))
+          .sort((a, b) => b.amount - a.amount);
+
+        const demConns = connections.filter(c => c.member.party === 'D');
+        const repConns = connections.filter(c => c.member.party === 'R');
+
+        content.innerHTML = `
+          <div class="detail-section">
+            <h3>Contribution Summary</h3>
+            <div class="stat-grid">
+              <div class="stat-box"><div class="stat-value">${formatMoney(d.total)}</div><div class="stat-label">Total</div></div>
+              <div class="stat-box"><div class="stat-value">${d.memberCount}</div><div class="stat-label">Recipients</div></div>
+              <div class="stat-box"><div class="stat-value" style="color: #3b82f6;">${demConns.length}</div><div class="stat-label">Democrats</div></div>
+              <div class="stat-box"><div class="stat-value" style="color: #ef4444;">${repConns.length}</div><div class="stat-label">Republicans</div></div>
+            </div>
+          </div>
+          <div class="detail-section">
+            <h3>Recipients</h3>
+            <div class="connection-list">
+              ${connections.slice(0, 12).map(c => `<div class="connection-item"><span class="name"><span class="party-dot" style="background: ${partyColors[c.member.party]}"></span>${c.member.name}</span><span class="amount">${formatMoney(c.amount)}</span></div>`).join('')}
+            </div>
+          </div>
+        `;
+      }
+      panel.classList.add('visible');
+      highlightNode(d.id);
+    }
+
+    function closeDetail() {
+      document.getElementById('detail-panel').classList.remove('visible');
+      clearHighlights();
+    }
+
+    function updateStats() {
+      document.getElementById('total-funding').textContent = formatMoney(fundingData.statistics.totalFunding);
+      document.getElementById('node-count').textContent = graphData.nodes.length;
+      document.getElementById('link-count').textContent = graphData.links.length;
+    }
+
+    function updateEntityList() {
+      const list = document.getElementById('entity-list');
+      const f = getFilters();
+      let items = [];
+
+      if (currentView === 'members') {
+        items = getFilteredMembers().map(m => ({
+          name: m.name,
+          meta: `${m.chamber === 'senate' ? 'Sen.' : 'Rep.'} (${m.party}-${m.state})`,
+          amount: m.finance.totalReceipts,
+          party: m.party
+        }));
+      } else {
+        // Get contributor data from graph
+        items = graphData.nodes
+          .filter(n => n.type === 'contributor')
+          .map(n => ({
+            name: n.name,
+            meta: `${n.memberCount} recipients${n.subtype === 'bipartisan' ? '' : ''}`,
+            amount: n.total,
+            bipartisan: n.subtype === 'bipartisan',
+            dems: n.dems,
+            reps: n.reps
+          }))
+          .sort((a, b) => b.amount - a.amount);
+      }
+
+      list.innerHTML = items.slice(0, 100).map(item => {
+        let borderClass = '';
+        if (item.party === 'D') borderClass = 'blue';
+        else if (item.party === 'R') borderClass = 'red';
+        else if (item.bipartisan) borderClass = 'bipartisan';
+
+        return `<div class="entity-item ${borderClass}" data-name="${item.name}">
+          <div class="entity-name">${item.name.substring(0, 32)}${item.bipartisan ? '<span class="entity-tag bipartisan">Bipartisan</span>' : ''}</div>
+          <div class="entity-meta">${item.meta} • <span class="entity-amount">${formatMoney(item.amount)}</span></div>
+        </div>`;
+      }).join('');
+
+      list.querySelectorAll('.entity-item').forEach(el => {
+        el.addEventListener('click', () => {
+          const name = el.dataset.name;
+          const node = graphData.nodes.find(n => n.name === name);
+          if (node) showDetail(null, node);
+        });
+      });
+    }
+
+    function updateInsights() {
+      const panel = document.getElementById('insights-panel');
+
+      if (currentView === 'bipartisan') {
+        const bipartisanDonors = graphData.nodes.filter(n => n.subtype === 'bipartisan');
+        const totalBipartisan = bipartisanDonors.reduce((sum, n) => sum + n.total, 0);
+
+        panel.innerHTML = `
+          <div class="insight-card">
+            <h4>Bipartisan Money Flow</h4>
+            <p>${bipartisanDonors.length} donors give to both parties, totaling ${formatMoney(totalBipartisan)}</p>
+          </div>
+        `;
+        panel.classList.add('visible');
+      } else if (currentView === 'shared') {
+        panel.innerHTML = `
+          <div class="insight-card">
+            <h4>Shared Donor Networks</h4>
+            <p>Showing donors connected to 3+ top-funded members from both parties</p>
+          </div>
+        `;
+        panel.classList.add('visible');
+      } else {
+        panel.classList.remove('visible');
+      }
+    }
+
+    // Chat functions
+    function toggleChatSetup() {
+      const setup = document.getElementById('chat-api-setup');
+      setup.style.display = setup.style.display === 'none' ? 'block' : 'none';
+    }
+
+    function saveApiKey() {
+      const key = document.getElementById('api-key').value;
+      const provider = document.getElementById('llm-provider').value;
+
+      if (key && key !== '••••••••') {
+        apiKey = key;
+        llmProvider = provider;
+        localStorage.setItem('llm_api_key', key);
+        localStorage.setItem('llm_provider', provider);
+        document.getElementById('api-key').value = '••••••••';
+        document.getElementById('api-status').textContent = 'Key saved';
+        document.getElementById('api-status').className = 'api-status connected';
+      }
+    }
+
+    async function sendMessage() {
+      const input = document.getElementById('chat-input');
+      const message = input.value.trim();
+      if (!message) return;
+
+      if (!apiKey || apiKey === '••••••••') {
+        addChatMessage('system', 'Please add your API key in Setup first.');
+        return;
+      }
+
+      addChatMessage('user', message);
+      input.value = '';
+      document.getElementById('send-btn').disabled = true;
+
+      // Build context from current view
+      const context = buildChatContext();
+
+      try {
+        const response = await callLLM(message, context);
+        addChatMessage('assistant', response);
+      } catch (err) {
+        addChatMessage('system', `Error: ${err.message}`);
+      }
+
+      document.getElementById('send-btn').disabled = false;
+    }
+
+    function addChatMessage(type, text) {
+      const messages = document.getElementById('chat-messages');
+      const div = document.createElement('div');
+      div.className = `chat-message ${type}`;
+      div.textContent = text;
+      messages.appendChild(div);
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    function buildChatContext() {
+      const visibleMembers = graphData.nodes.filter(n => n.type === 'member').slice(0, 50);
+      const visibleContributors = graphData.nodes.filter(n => n.type === 'contributor').slice(0, 30);
+
+      return {
+        view: currentView,
+        totalFunding: formatMoney(fundingData.statistics.totalFunding),
+        memberCount: fundingData.metadata.totalMembers,
+        topMembers: visibleMembers.map(m => ({
+          name: m.name,
+          party: m.party,
+          state: m.data.state,
+          chamber: m.data.chamber,
+          totalRaised: m.data.finance.totalReceipts
+        })),
+        topContributors: visibleContributors.map(c => ({
+          name: c.name,
+          total: c.total,
+          recipients: c.memberCount,
+          bipartisan: c.subtype === 'bipartisan'
+        })),
+        topPACs: fundingData.statistics.topPACs?.slice(0, 20) || [],
+        topEmployers: fundingData.statistics.topEmployers?.slice(0, 20) || []
+      };
+    }
+
+    async function callLLM(message, context) {
+      const systemPrompt = `You are an expert analyst helping users understand congressional campaign finance data. You have access to the following data context:
+
+Current View: ${context.view}
+Total Funding Tracked: ${context.totalFunding}
+Total Members: ${context.memberCount}
+
+Top Contributors in Current View:
+${context.topContributors.map(c => `- ${c.name}: ${formatMoney(c.total)} to ${c.recipients} members${c.bipartisan ? ' (BIPARTISAN)' : ''}`).join('\n')}
+
+Top PACs Overall:
+${context.topPACs.slice(0, 10).map(p => `- ${p.name}: ${formatMoney(p.total)}`).join('\n')}
+
+Top Employer Sources:
+${context.topEmployers.slice(0, 10).map(e => `- ${e.name}: ${formatMoney(e.total)}`).join('\n')}
+
+Some Top-Funded Members:
+${context.topMembers.slice(0, 15).map(m => `- ${m.name} (${m.party}-${m.state}, ${m.chamber}): ${formatMoney(m.totalRaised)}`).join('\n')}
+
+Answer questions concisely. Highlight interesting patterns, bipartisan donors, and potential influence connections. Be factual and cite specific numbers from the data.`;
+
+      if (llmProvider === 'anthropic') {
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true'
+          },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 1024,
+            system: systemPrompt,
+            messages: [{ role: 'user', content: message }]
+          })
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.error?.message || 'API request failed');
+        }
+
+        const data = await response.json();
+        return data.content[0].text;
+
+      } else {
+        // OpenAI
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: message }
+            ],
+            max_tokens: 1024
+          })
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.error?.message || 'API request failed');
+        }
+
+        const data = await response.json();
+        return data.choices[0].message.content;
+      }
+    }
+
+    // Event listeners
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        currentView = tab.dataset.view;
+        closeDetail();
+        initializeGraph();
+        updateEntityList();
+        updateInsights();
+      });
+    });
+
+    document.getElementById('chamber-filter').addEventListener('change', () => { closeDetail(); initializeGraph(); updateEntityList(); });
+    document.getElementById('party-filter').addEventListener('change', () => { closeDetail(); initializeGraph(); updateEntityList(); });
+    document.getElementById('search').addEventListener('input', debounce(() => { closeDetail(); initializeGraph(); updateEntityList(); }, 300));
+
+    document.getElementById('count-slider').addEventListener('input', (e) => {
+      document.getElementById('count-value').textContent = e.target.value;
+    });
+    document.getElementById('count-slider').addEventListener('change', () => { closeDetail(); initializeGraph(); updateEntityList(); });
+
+    document.getElementById('member-slider').addEventListener('input', (e) => {
+      document.getElementById('member-value').textContent = e.target.value;
+    });
+    document.getElementById('member-slider').addEventListener('change', () => { closeDetail(); initializeGraph(); updateEntityList(); });
+
+    function debounce(fn, delay) {
+      let timeout;
+      return (...args) => { clearTimeout(timeout); timeout = setTimeout(() => fn(...args), delay); };
+    }
+
+    window.addEventListener('resize', debounce(() => {
+      const svg = d3.select('#graph');
+      const width = svg.node().parentElement.clientWidth;
+      const height = svg.node().parentElement.clientHeight;
+      svg.attr('width', width).attr('height', height);
+      if (simulation) {
+        simulation.force('center', d3.forceCenter(width / 2, height / 2));
+        simulation.alpha(0.3).restart();
+      }
+    }, 250));
+
+    // Init
+    loadData();
+  </script>
+</body>
+</html>
