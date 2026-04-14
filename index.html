@@ -4,11 +4,35 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mason Chambers</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
+        :root {
+            /* Day/night driven colors */
+            --text:        #ffffff;
+            --text-soft:   rgba(255, 255, 255, 0.78);
+            --text-mute:   rgba(255, 255, 255, 0.60);
+            --border-soft: rgba(255, 255, 255, 0.22);
+            --tint:        rgba(255, 255, 255, 0.10);
+            --tint-strong: rgba(255, 255, 255, 0.22);
+            --palm-color:  rgba(0, 0, 0, 0.92);
+        }
+        body.is-day {
+            --text:        #0a0a0a;
+            --text-soft:   rgba(0, 0, 0, 0.65);
+            --text-mute:   rgba(0, 0, 0, 0.50);
+            --border-soft: rgba(0, 0, 0, 0.12);
+            --tint:        rgba(255, 255, 255, 0.45);
+            --tint-strong: rgba(255, 255, 255, 0.65);
+            --palm-color:  rgba(0, 0, 0, 0.88);
+        }
+
+        html, body { height: 100%; }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: #f4f4f5;
-            color: #18181b;
+            font-family: 'Geist', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: #0a0e27;
+            color: var(--text);
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -16,46 +40,76 @@
             min-height: 100vh;
             margin: 0;
             padding: 20px;
+            position: relative;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            transition: color 0.6s ease;
+        }
+        #sky {
+            position: fixed;
+            inset: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: -1;
+            display: block;
+            pointer-events: none;
+        }
+
+        /* LA palm silhouettes — video loop with blend mode */
+        .palms {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            width: 100vw;
+            height: 62vh;
+            pointer-events: none;
+            z-index: 0;
+            object-fit: cover;
+            object-position: bottom center;
+            /* White background of video → invisible, black palms → dark silhouettes */
+            mix-blend-mode: multiply;
         }
         .container {
             text-align: center;
-            background: white;
             padding: 40px;
-            border-radius: 16px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-            max-width: 400px;
+            border-radius: 28px;
+            max-width: 440px;
             width: 100%;
+            position: relative;
+            z-index: 10;
         }
-        h1 { margin-bottom: 10px; font-size: 24px; }
-        p { color: #71717a; margin-bottom: 30px; line-height: 1.5; }
+        h1 {
+            margin: 0 0 12px;
+            font-size: 30px;
+            font-weight: 600;
+            letter-spacing: -0.03em;
+            line-height: 1.1;
+            color: var(--text);
+        }
+        p {
+            color: var(--text-soft);
+            margin: 0 0 26px;
+            font-size: 15px;
+            line-height: 1.55;
+            transition: color 0.6s ease;
+        }
         .link-button {
             display: block;
             width: 100%;
-            padding: 12px 0;
-            margin-bottom: 12px;
-            background-color: #18181b;
-            color: white;
             text-decoration: none;
-            border-radius: 8px;
-            font-weight: 500;
-            transition: opacity 0.2s;
             box-sizing: border-box;
-            border: none;
             cursor: pointer;
-            font-size: 16px;
+            font-size: 15px;
+            font-family: inherit;
         }
-        .link-button:hover { opacity: 0.9; }
-        .link-button.secondary {
-            background-color: transparent;
-            border: 1px solid #e4e4e7;
-            color: #18181b;
-        }
-        .link-button.secondary:hover { background-color: #f4f4f5; }
 
         .social-row {
             display: flex;
             gap: 12px;
-            margin-top: 8px;
+            margin-top: 18px;
+            padding-top: 18px;
+            border-top: 1px solid rgba(255, 255, 255, 0.10);
         }
         .social-row .link-button {
             margin-bottom: 0;
@@ -68,144 +122,69 @@
             padding: 12px;
         }
 
-        /* About Me Overlay */
-        .about-overlay {
-            display: none;
-            position: fixed;
+        /* View stack (single morphing card) */
+        .view-stack {
+            position: relative;
+            transition: height 0.35s ease;
+        }
+        .view {
+            position: absolute;
             top: 0;
             left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.5);
-            z-index: 1000;
-            overflow-y: auto;
-            padding: 40px 20px;
-            box-sizing: border-box;
+            right: 0;
+            opacity: 0;
+            transform: translateX(16px);
+            transition: opacity 0.25s ease, transform 0.25s ease;
+            pointer-events: none;
+            text-align: center;
         }
-        .about-overlay.active { display: flex; justify-content: center; align-items: flex-start; }
-
-        .about-container {
-            background: white;
-            border-radius: 16px;
-            max-width: 600px;
-            width: 100%;
-            padding: 40px;
+        .view.active {
             position: relative;
-            margin: auto;
+            opacity: 1;
+            transform: translateX(0);
+            pointer-events: auto;
         }
-        .about-close {
+        .view h2 {
+            margin-top: 0;
+            margin-bottom: 24px;
+            font-size: 22px;
+        }
+        .section-label {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1.2px;
+            color: rgba(255, 255, 255, 0.6);
+            margin-bottom: 20px;
+            margin-top: 0;
+            text-align: left;
+        }
+        .back-btn {
             position: absolute;
-            top: 16px;
-            right: 16px;
-            background: none;
-            border: none;
-            font-size: 24px;
-            cursor: pointer;
-            color: #71717a;
+            top: 4px;
+            left: 4px;
             width: 32px;
             height: 32px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.10);
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            color: #fff;
+            font-size: 17px;
+            cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            border-radius: 8px;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+            transition: background 0.18s ease;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.30);
+            z-index: 2;
         }
-        .about-close:hover { background: #f4f4f5; }
+        .back-btn:hover { background: rgba(255, 255, 255, 0.20); }
 
         .about-bio {
-            margin-bottom: 32px;
+            margin: 0;
             line-height: 1.6;
-            color: #3f3f46;
+            font-size: 18px;
         }
-
-        .timeline {
-            position: relative;
-            padding-left: 30px;
-        }
-        .timeline::before {
-            content: '';
-            position: absolute;
-            left: 8px;
-            top: 8px;
-            bottom: 8px;
-            width: 2px;
-            background: #e4e4e7;
-        }
-        .timeline-item {
-            position: relative;
-            margin-bottom: 24px;
-        }
-        .timeline-item:last-child { margin-bottom: 0; }
-        .timeline-item::before {
-            content: '';
-            position: absolute;
-            left: -22px;
-            top: 6px;
-            width: 10px;
-            height: 10px;
-            background: #18181b;
-            border-radius: 50%;
-        }
-        .timeline-year {
-            font-size: 12px;
-            font-weight: 600;
-            color: #71717a;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 4px;
-        }
-        .timeline-title {
-            font-weight: 600;
-            color: #18181b;
-            margin-bottom: 4px;
-        }
-        .timeline-desc {
-            font-size: 14px;
-            color: #71717a;
-            line-height: 1.5;
-        }
-
-        /* Projects Overlay */
-        .projects-overlay {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.5);
-            z-index: 1000;
-            overflow-y: auto;
-            padding: 40px 20px;
-            box-sizing: border-box;
-        }
-        .projects-overlay.active { display: flex; justify-content: center; align-items: flex-start; }
-
-        .projects-container {
-            background: white;
-            border-radius: 16px;
-            max-width: 500px;
-            width: 100%;
-            padding: 40px;
-            position: relative;
-            margin: auto;
-        }
-        .projects-close {
-            position: absolute;
-            top: 16px;
-            right: 16px;
-            background: none;
-            border: none;
-            font-size: 24px;
-            cursor: pointer;
-            color: #71717a;
-            width: 32px;
-            height: 32px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 8px;
-        }
-        .projects-close:hover { background: #f4f4f5; }
 
         .projects-list {
             display: flex;
@@ -216,196 +195,573 @@
             display: flex;
             align-items: center;
             padding: 16px;
-            border: 1px solid #e4e4e7;
+            border: 1px solid var(--border-soft);
             border-radius: 12px;
             text-decoration: none;
-            color: #18181b;
-            transition: all 0.2s;
+            color: var(--text);
+            transition: background 0.18s ease, color 0.6s ease, border-color 0.6s ease;
+        }
+        .project-link:hover { background: var(--tint); }
+        .project-info { flex: 1; min-width: 0; }
+        .project-title { font-weight: 600; margin-bottom: 2px; }
+        .project-desc { font-size: 14px; color: var(--text-mute); }
+        .project-arrow { color: var(--text-mute); font-size: 18px; }
+
+        /* ====== Weather station (About Me view) ====== */
+        .weather-station {
+            text-align: left;
+            margin-top: 4px;
+        }
+        .ws-section-label {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1.4px;
+            color: var(--text-mute);
+            margin: 18px 0 8px;
+            font-weight: 500;
+        }
+        .ws-section-label:first-child { margin-top: 0; }
+        .ws-modes {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .ws-mode {
+            flex: 1;
+            min-width: 0;
+            padding: 9px 0;
+            font-size: 12px;
+            font-family: inherit;
+            font-weight: 500;
+            color: var(--text);
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.30);
+            border-radius: 10px;
+            cursor: pointer;
+            transition: background 0.25s ease, border-color 0.25s ease, transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        .ws-mode:hover {
+            background: rgba(255, 255, 255, 0);
+            border-color: rgba(255, 255, 255, 0.55);
+            transform: scale(1.04);
+        }
+        .ws-mode.active {
+            background: rgba(255, 255, 255, 0.18);
+            border-color: rgba(255, 255, 255, 0.65);
+        }
+        .ws-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        .ws-cell {
+            padding: 10px 12px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            border-radius: 10px;
+            min-width: 0;
+        }
+        .ws-key {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1.2px;
+            color: var(--text-mute);
+            font-weight: 500;
+            margin-bottom: 3px;
+        }
+        .ws-val {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text);
+            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .ws-moon {
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+            filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.35));
+        }
+        body.is-day .ws-cell,
+        body.is-day .ws-mode {
+            background: rgba(255, 255, 255, 0.25);
+            border-color: rgba(0, 0, 0, 0.12);
+        }
+        body.is-day .ws-mode.active {
+            background: rgba(255, 255, 255, 0.55);
+        }
+        body.is-day .ws-val {
+            text-shadow: 0 1px 2px rgba(255, 255, 255, 0.55);
+        }
+
+        /* ====== Glass card ====== */
+        .container {
+            background: rgba(255, 255, 255, 0.04);
+            -webkit-backdrop-filter: blur(4px) saturate(130%);
+            backdrop-filter: blur(4px) saturate(130%);
+            border: 1px solid rgba(255, 255, 255, 0.45);
+            border-radius: 28px;
+            box-shadow:
+                0 20px 50px -10px rgba(0, 0, 0, 0.45),
+                inset 0 1px 0 rgba(255, 255, 255, 0.65),
+                inset 0 0 40px -10px rgba(255, 255, 255, 0.18);
+            color: var(--text);
+            transition:
+                color 0.6s ease,
+                border-color 0.6s ease,
+                background 0.45s ease,
+                backdrop-filter 0.45s ease,
+                -webkit-backdrop-filter 0.45s ease,
+                transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+                box-shadow 0.45s ease;
+            position: relative;
+            overflow: hidden;
+            transform-origin: center center;
+            will-change: transform;
+        }
+        .container:hover {
+            background: rgba(255, 255, 255, 0);
+            -webkit-backdrop-filter: blur(0px) saturate(100%);
+            backdrop-filter: blur(0px) saturate(100%);
+            transform: scale(1.04);
+            box-shadow:
+                0 28px 60px -12px rgba(0, 0, 0, 0.50),
+                inset 0 1px 0 rgba(255, 255, 255, 0.75),
+                inset 0 0 50px -10px rgba(255, 255, 255, 0.22);
+            border-color: rgba(255, 255, 255, 0.60);
+        }
+        body.is-day .container {
+            background: rgba(255, 255, 255, 0.10);
+        }
+        body.is-day .container:hover {
+            background: rgba(255, 255, 255, 0);
+        }
+        .container h1 { color: var(--text); font-weight: 600; letter-spacing: -0.025em; transition: color 0.6s ease; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.45); }
+        .container p { color: var(--text-soft); text-shadow: 0 1px 4px rgba(0, 0, 0, 0.40); }
+        .view h2 { color: var(--text); font-weight: 600; letter-spacing: -0.02em; transition: color 0.6s ease; text-shadow: 0 1px 5px rgba(0, 0, 0, 0.45); }
+        .about-bio { color: var(--text-soft); transition: color 0.6s ease; text-shadow: 0 1px 4px rgba(0, 0, 0, 0.40); }
+        body.is-day .container h1,
+        body.is-day .view h2 { text-shadow: 0 1px 4px rgba(255, 255, 255, 0.55); }
+        body.is-day .container p,
+        body.is-day .about-bio { text-shadow: 0 1px 3px rgba(255, 255, 255, 0.55); }
+
+        .project-link {
+            background: rgba(255, 255, 255, 0.10);
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            color: #fff;
+            -webkit-backdrop-filter: blur(8px);
+            backdrop-filter: blur(8px);
         }
         .project-link:hover {
-            background: #f4f4f5;
-            border-color: #d4d4d8;
-        }
-        .project-icon {
-            font-size: 24px;
-            margin-right: 16px;
-        }
-        .project-info {
-            flex: 1;
+            background: rgba(255, 255, 255, 0.20);
+            border-color: rgba(255, 255, 255, 0.40);
         }
         .project-title {
+            color: #fff;
             font-weight: 600;
-            margin-bottom: 2px;
+            text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
         }
-        .project-desc {
-            font-size: 14px;
-            color: #71717a;
+        .project-desc { color: rgba(255, 255, 255, 0.72); text-shadow: 0 1px 3px rgba(0,0,0,0.4); }
+        .project-arrow { color: rgba(255, 255, 255, 0.65); }
+
+        .link-button {
+            background: var(--tint);
+            color: var(--text);
+            border: 1px solid var(--border-soft);
+            border-radius: 14px;
+            font-weight: 500;
+            padding: 13px 0;
+            margin-bottom: 10px;
+            box-shadow:
+                inset 0 1px 0 rgba(255, 255, 255, 0.30),
+                0 4px 14px -4px rgba(0, 0, 0, 0.30);
+            transition:
+                background 0.45s ease,
+                transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+                color 0.6s ease,
+                border-color 0.45s ease,
+                box-shadow 0.45s ease;
+            transform-origin: center center;
+            will-change: transform;
         }
-        .project-arrow {
-            color: #a1a1aa;
-            font-size: 18px;
+        .link-button:hover {
+            background: rgba(255, 255, 255, 0);
+            transform: scale(1.05);
+            border-color: rgba(255, 255, 255, 0.55);
+            box-shadow:
+                inset 0 1px 0 rgba(255, 255, 255, 0.50),
+                0 8px 22px -6px rgba(0, 0, 0, 0.40);
+        }
+        .link-button:active {
+            transform: scale(1.02);
+        }
+        .link-button:focus-visible {
+            outline: 2px solid var(--text);
+            outline-offset: 2px;
+        }
+        .link-button.secondary {
+            background: var(--tint);
+        }
+        .link-button.secondary:hover {
+            background: rgba(255, 255, 255, 0);
+        }
+
+        /* Back button (in About / Projects views) */
+        .back-btn {
+            background: rgba(255, 255, 255, 0.08) !important;
+            color: #fff !important;
+            border: 1px solid rgba(255, 255, 255, 0.22) !important;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4) !important;
+            box-shadow:
+                inset 0 0 18px -5px rgba(255, 255, 255, 0.55),
+                inset 0 1px 0 rgba(255, 255, 255, 0.45),
+                0 4px 14px -4px rgba(0, 0, 0, 0.30) !important;
+        }
+        .back-btn:hover {
+            background: rgba(255, 255, 255, 0.18) !important;
+        }
+
+        /* ============================================================
+           Mobile & touch responsive rules
+           ============================================================ */
+
+        /* Touch-first: disable hover-only transforms so taps don't flash */
+        @media (hover: none) {
+            .container:hover {
+                transform: none;
+                background: rgba(255, 255, 255, 0.04);
+                -webkit-backdrop-filter: blur(4px) saturate(130%);
+                backdrop-filter: blur(4px) saturate(130%);
+            }
+            body.is-day .container:hover {
+                background: rgba(255, 255, 255, 0.10);
+            }
+            .link-button:hover {
+                transform: none;
+                background: var(--tint);
+            }
+            .link-button.secondary:hover {
+                background: var(--tint);
+            }
+            .ws-mode:hover {
+                transform: none;
+                background: rgba(255, 255, 255, 0.06);
+                border-color: rgba(255, 255, 255, 0.30);
+            }
+            body.is-day .ws-mode:hover {
+                background: rgba(255, 255, 255, 0.25);
+            }
+        }
+
+        /* Keep tap targets fast and predictable */
+        .link-button, .wt, .ws-mode, .back-btn, .project-link {
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* Phones & small tablets */
+        @media (max-width: 640px) {
+            body { padding: 16px; }
+            .container {
+                padding: 28px 22px 24px;
+                border-radius: 24px;
+                max-width: 100%;
+            }
+            h1 { font-size: 26px; margin-bottom: 10px; }
+            p { font-size: 14.5px; margin-bottom: 22px; }
+            .view h2 { font-size: 20px; margin-bottom: 18px; }
+            .about-bio { font-size: 16px; }
+            .link-button { padding: 14px 0; font-size: 14.5px; border-radius: 12px; }
+            .social-row { margin-top: 14px; padding-top: 14px; gap: 10px; }
+
+            /* Palms take less vertical space on short phone viewports */
+            .palms { height: 48vh; }
+
+            /* Weather station cells stack into single column on narrow phones */
+            .ws-grid { grid-template-columns: 1fr; gap: 6px; }
+            .ws-modes { gap: 4px; }
+            .ws-mode { padding: 10px 0; font-size: 11.5px; }
+            .ws-cell { padding: 9px 11px; }
+            .ws-val { font-size: 14px; }
+            .ws-section-label { margin: 14px 0 6px; }
+
+            .back-btn { width: 30px; height: 30px; font-size: 16px; }
+        }
+
+        /* Very small phones — tighter still */
+        @media (max-width: 380px) {
+            .container { padding: 24px 18px 20px; }
+            h1 { font-size: 23px; }
+            .palms { height: 44vh; }
+        }
+
+        /* Landscape phones: card + palms can get cramped vertically */
+        @media (max-height: 520px) and (orientation: landscape) {
+            .palms { height: 40vh; }
+            .container { padding: 24px 28px 20px; }
+            h1 { font-size: 24px; margin-bottom: 6px; }
+            p { margin-bottom: 18px; }
         }
     </style>
 </head>
 <body>
 
+    <canvas id="sky" aria-hidden="true"></canvas>
+
+    <video
+        class="palms"
+        src="assets/palms.mp4"
+        autoplay
+        muted
+        loop
+        playsinline
+        preload="metadata"
+        aria-hidden="true"
+    ></video>
+
     <div class="container">
-        <h1>Mason Chambers</h1>
-        <p>Constant pursuit of knowledge. <br> Contact me below.</p>
+        <div class="view-stack" id="viewStack">
 
-        <a href="mailto:mason@masonchambers.com" class="link-button">Email Me</a>
-        <button class="link-button secondary" onclick="openAbout()">About Me</button>
-        <button class="link-button secondary" onclick="openProjects()">Projects</button>
-        <a href="https://cal.com/masonchambers" class="link-button secondary" target="_blank">Schedule a Meeting</a>
+            <div class="view active" data-view="main">
+                <h1>Mason Chambers</h1>
+                <p>Constant pursuit of knowledge.<br>Contact me below.</p>
 
+                <a href="mailto:mason@masonchambers.com" class="link-button">Email Me</a>
+                <button class="link-button secondary" onclick="showView('about')">About Me</button>
+                <button class="link-button secondary" onclick="showView('projects')">Projects</button>
+                <a href="https://cal.com/masonchambers" class="link-button secondary" target="_blank">Schedule a Meeting</a>
 
-        <div class="social-row">
-            <a href="https://github.com/chambersmason" class="link-button secondary social-icon" target="_blank" aria-label="GitHub">
-                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
-            </a>
-            <a href="https://www.linkedin.com/in/mason-chambers/" class="link-button secondary social-icon" target="_blank" aria-label="LinkedIn">
-                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
-            </a>
-            <a href="https://x.com/mason_compsci" class="link-button secondary social-icon" target="_blank" aria-label="X">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
-            </a>
-        </div>
-    </div>
-
-    <!-- About Me Overlay -->
-    <div class="about-overlay" id="aboutOverlay" onclick="if(event.target === this) closeAbout()">
-        <div class="about-container">
-            <button class="about-close" onclick="closeAbout()">&times;</button>
-            <h2 style="margin-top: 0; margin-bottom: 24px;">About Me</h2>
-
-            <p class="about-bio">
-                i like building stuff
-            </p>
-
-            <h3 style="font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: #71717a; margin-bottom: 20px;">My Journey</h3>
-
-            <div class="timeline">
-                <div class="timeline-item">
-                    <div class="timeline-year">2012</div>
-                    <div class="timeline-title">Started Coding</div>
-                    <div class="timeline-desc">Began programming journey by creating Minecraft mods and plugins</div>
-                </div>
-
-                <div class="timeline-item">
-                    <div class="timeline-year">2016</div>
-                    <div class="timeline-title">Elon University</div>
-                    <div class="timeline-desc">Studied Computer Science, building a strong foundation in software development</div>
-                </div>
-
-                <div class="timeline-item">
-                    <div class="timeline-year">2019</div>
-                    <div class="timeline-title">Avid</div>
-                    <div class="timeline-desc">Worked on media technology solutions</div>
-                </div>
-
-                <div class="timeline-item">
-                    <div class="timeline-year">2020</div>
-                    <div class="timeline-title">Prometheus Group</div>
-                    <div class="timeline-desc">Developed enterprise software solutions, first time leading a team</div>
-                </div>
-
-                <div class="timeline-item">
-                    <div class="timeline-year">2023</div>
-                    <div class="timeline-title">Industry Intelligence</div>
-                    <div class="timeline-desc">Built AI-powered intelligence platform</div>
-                </div>
-
-                <div class="timeline-item">
-                    <div class="timeline-year">Present</div>
-                    <div class="timeline-title">USC Master's in AI</div>
-                    <div class="timeline-desc">Pursuing advanced studies in Artificial Intelligence at the University of Southern California</div>
+                <div class="social-row">
+                    <a href="https://github.com/chambersmason" class="link-button secondary social-icon" target="_blank" aria-label="GitHub">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                    </a>
+                    <a href="https://www.linkedin.com/in/mason-chambers/" class="link-button secondary social-icon" target="_blank" aria-label="LinkedIn">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+                    </a>
+                    <a href="https://x.com/mason_compsci" class="link-button secondary social-icon" target="_blank" aria-label="X">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                    </a>
                 </div>
             </div>
-        </div>
-    </div>
 
-    <!-- Projects Overlay -->
-    <div class="projects-overlay" id="projectsOverlay" onclick="if(event.target === this) closeProjects()">
-        <div class="projects-container">
-            <button class="projects-close" onclick="closeProjects()">&times;</button>
-            <h2 style="margin-top: 0; margin-bottom: 24px;">Projects</h2>
+            <div class="view" data-view="about">
+                <button class="back-btn" onclick="showView('main')" aria-label="Back">←</button>
+                <h2>Marina del Rey</h2>
+                <p class="about-bio">Everything outside the glass is live — these conditions are what you're seeing now.</p>
 
-            <div class="projects-list">
-                <a href="https://www.industryintel.com/ai-teammates" target="_blank" class="project-link">
-                    <div class="project-info">
-                        <div class="project-title">AI Teammates</div>
-                        <div class="project-desc">AI-powered team collaboration at Industry Intelligence</div>
+                <div class="weather-station">
+                    <div class="ws-section-label">Scene</div>
+                    <div class="ws-modes" role="group" aria-label="Sky scene">
+                        <button class="ws-mode active" data-mode="auto"  aria-label="Auto">Auto</button>
+                        <button class="ws-mode"        data-mode="sun"   aria-label="Clear">Clear</button>
+                        <button class="ws-mode"        data-mode="cloud" aria-label="Cloudy">Cloudy</button>
+                        <button class="ws-mode"        data-mode="rain"  aria-label="Rain">Rain</button>
+                        <button class="ws-mode"        data-mode="night" aria-label="Night">Night</button>
                     </div>
-                    <span class="project-arrow">→</span>
-                </a>
-                
-                <a href="https://www.mase-services.com" target="_blank" class="project-link">
-                    <div class="project-info">
-                        <div class="project-title">AI Consulting</div>
-                        <div class="project-desc">Helping copmanies navigate digital transformation in the age of AI</div>
-                    </div>
-                    <span class="project-arrow">→</span>
-                </a>
-                
-                <a href="https://github.com/chambersmason" target="_blank" class="project-link">
-                    <div class="project-info">
-                        <div class="project-title">GitHub</div>
-                        <div class="project-desc">Open source projects and code repositories</div>
-                    </div>
-                    <span class="project-arrow">→</span>
-                </a>
 
-                <a href="/legilens" class="project-link">
-                    <div class="project-info">
-                        <div class="project-title">LegisLens</div>
-                        <div class="project-desc">Legislative data viewer and analysis tool</div>
+                    <div class="ws-section-label">Live weather</div>
+                    <div class="ws-grid">
+                        <div class="ws-cell">
+                            <div class="ws-key">Condition</div>
+                            <div class="ws-val" id="ws-condition">—</div>
+                        </div>
+                        <div class="ws-cell">
+                            <div class="ws-key">Temperature</div>
+                            <div class="ws-val" id="ws-temp">—</div>
+                        </div>
+                        <div class="ws-cell">
+                            <div class="ws-key">Feels like</div>
+                            <div class="ws-val" id="ws-feels">—</div>
+                        </div>
+                        <div class="ws-cell">
+                            <div class="ws-key">Humidity</div>
+                            <div class="ws-val" id="ws-humidity">—</div>
+                        </div>
+                        <div class="ws-cell">
+                            <div class="ws-key">Wind</div>
+                            <div class="ws-val" id="ws-wind">—</div>
+                        </div>
+                        <div class="ws-cell">
+                            <div class="ws-key">Cloud cover</div>
+                            <div class="ws-val" id="ws-cloud">—</div>
+                        </div>
+                        <div class="ws-cell">
+                            <div class="ws-key">Visibility</div>
+                            <div class="ws-val" id="ws-visibility">—</div>
+                        </div>
                     </div>
-                    <span class="project-arrow">→</span>
-                </a>
 
-                <a href="https://littlejunkdrawer.com" target="_blank" class="project-link">
-                    <div class="project-info">
-                        <div class="project-title">Little Junk Drawer</div>
-                        <div class="project-desc">A productivity macOS app</div>
+                    <div class="ws-section-label">Astronomy</div>
+                    <div class="ws-grid">
+                        <div class="ws-cell">
+                            <div class="ws-key">Local time</div>
+                            <div class="ws-val" id="ws-time">—</div>
+                        </div>
+                        <div class="ws-cell ws-moon-cell">
+                            <div class="ws-key">Moon</div>
+                            <div class="ws-val">
+                                <svg class="ws-moon" viewBox="0 0 24 24" aria-hidden="true">
+                                    <defs>
+                                        <mask id="moon-mask">
+                                            <rect width="24" height="24" fill="white"/>
+                                            <circle id="moon-shadow" cx="12" cy="12" r="10" fill="black"/>
+                                        </mask>
+                                    </defs>
+                                    <circle cx="12" cy="12" r="10" fill="rgba(255,255,255,0.15)"/>
+                                    <circle cx="12" cy="12" r="10" fill="rgba(255,255,255,0.92)" mask="url(#moon-mask)"/>
+                                </svg>
+                                <span id="ws-moon-label">—</span>
+                            </div>
+                        </div>
                     </div>
-                    <span class="project-arrow">→</span>
-                </a>
-
-                <a href="https://rollweekly.com" target="_blank" class="project-link">
-                    <div class="project-info">
-                        <div class="project-title">Roll</div>
-                        <div class="project-desc">An anti-social media app for sharing real moments with real friends</div>
-                    </div>
-                    <span class="project-arrow">→</span>
-                </a>
+                </div>
             </div>
+
+            <div class="view" data-view="projects">
+                <button class="back-btn" onclick="showView('main')" aria-label="Back">←</button>
+                <h2>Projects</h2>
+
+                <a href="https://www.industryintel.com/ai-teammates" target="_blank" class="link-button secondary">AI Teammates</a>
+                <a href="https://www.mase-services.com" target="_blank" class="link-button secondary">AI Consulting</a>
+                <a href="https://github.com/chambersmason" target="_blank" class="link-button secondary">GitHub</a>
+                <a href="/legilens" class="link-button secondary">LegisLens</a>
+                <a href="https://littlejunkdrawer.com" target="_blank" class="link-button secondary">Little Junk Drawer</a>
+                <a href="https://rollweekly.com" target="_blank" class="link-button secondary">Roll</a>
+            </div>
+
         </div>
     </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+            "raindrop-fx": "https://esm.sh/raindrop-fx@1.0.7"
+        }
+    }
+    </script>
+    <script type="module" src="sky.js"></script>
 
     <script>
-        function openAbout() {
-            document.getElementById('aboutOverlay').classList.add('active');
-            document.body.style.overflow = 'hidden';
+
+        // ---------- View stack: smooth card morphing ----------
+        let __viewT;
+        function showView(name) {
+            const stack = document.getElementById('viewStack');
+            if (!stack) return;
+            const current = stack.querySelector('.view.active');
+            const next = stack.querySelector('.view[data-view="' + name + '"]');
+            if (!next || current === next) return;
+
+            const startH = stack.offsetHeight;
+            stack.style.height = startH + 'px';
+            // force reflow so the height transition picks up the start value
+            void stack.offsetWidth;
+
+            current.classList.remove('active');
+            next.classList.add('active');
+
+            // wait two frames for layout to apply, then animate to natural height
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    const endH = next.scrollHeight;
+                    stack.style.height = endH + 'px';
+                });
+            });
+
+            clearTimeout(__viewT);
+            __viewT = setTimeout(() => { stack.style.height = ''; }, 520);
         }
-        function closeAbout() {
-            document.getElementById('aboutOverlay').classList.remove('active');
-            document.body.style.overflow = '';
-        }
-        function openProjects() {
-            document.getElementById('projectsOverlay').classList.add('active');
-            document.body.style.overflow = 'hidden';
-        }
-        function closeProjects() {
-            document.getElementById('projectsOverlay').classList.remove('active');
-            document.body.style.overflow = '';
-        }
-        // Close on Escape key
+
         document.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape') {
-                closeAbout();
-                closeProjects();
-            }
+            if (e.key === 'Escape') showView('main');
         });
+
+        // ---------- Weather mode buttons (in About view) ----------
+        document.querySelectorAll('.ws-mode').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const mode = btn.dataset.mode;
+                document.querySelectorAll('.ws-mode').forEach(b => {
+                    b.classList.toggle('active', b === btn);
+                });
+                if (window.__setSkyMode) window.__setSkyMode(mode);
+            });
+        });
+
+        // ---------- Weather station renderer ----------
+        function fmtTemp(c) {
+            if (c == null) return '—';
+            const f = c * 9 / 5 + 32;
+            return Math.round(f) + '°F';
+        }
+        function fmtWind(kph, compass) {
+            if (kph == null) return '—';
+            const mph = Math.round(kph * 0.621371);
+            return compass ? `${mph} mph ${compass}` : `${mph} mph`;
+        }
+        function fmtLocalTime() {
+            return new Intl.DateTimeFormat('en-US', {
+                timeZone: 'America/Los_Angeles',
+                hour: 'numeric', minute: '2-digit', hour12: true,
+            }).format(new Date());
+        }
+        function renderWeatherStation() {
+            if (!window.__getLA) return;
+            const la = window.__getLA();
+            const $ = id => document.getElementById(id);
+            if ($('ws-condition')) $('ws-condition').textContent = la.weatherLabel || '—';
+            if ($('ws-temp'))      $('ws-temp').textContent      = fmtTemp(la.tempC);
+            if ($('ws-feels'))     $('ws-feels').textContent     = fmtTemp(la.apparentC);
+            if ($('ws-humidity'))  $('ws-humidity').textContent  = la.humidity != null ? Math.round(la.humidity) + '%' : '—';
+            if ($('ws-wind'))      $('ws-wind').textContent      = fmtWind(la.windKph, la.windCompass);
+            if ($('ws-cloud'))     $('ws-cloud').textContent     = la.cloud != null ? Math.round(la.cloud * 100) + '%' : '—';
+            if ($('ws-visibility')) $('ws-visibility').textContent = la.visibilityM != null
+                ? (la.visibilityM >= 1000
+                    ? (la.visibilityM / 1000).toFixed(1) + ' km'
+                    : Math.round(la.visibilityM) + ' m')
+                : '—';
+            if ($('ws-time'))      $('ws-time').textContent      = fmtLocalTime();
+            if ($('ws-moon-label'))$('ws-moon-label').textContent= la.moonLabel || '—';
+
+            // Moon phase mask: shift a black "shadow" circle across the moon.
+            // p = 0   → new  (shadow centered over moon)
+            // p = 0.5 → full (shadow offscreen)
+            // p = 1   → new again
+            const moonShadow = document.getElementById('moon-shadow');
+            if (moonShadow && la.moonPhase != null) {
+                const p = la.moonPhase;
+                const offset = p < 0.5
+                    ? -40 * p            // waxing: shadow slides from center to off-left
+                    :  40 * (1 - p);     // waning: shadow slides from off-right to center
+                moonShadow.setAttribute('cx', 12 + offset);
+            }
+        }
+        window.addEventListener('la:weather', renderWeatherStation);
+
+        // Keep trying to render until live data lands (sky.js fetch is async).
+        let __wsTries = 0;
+        (function pollUntilReady() {
+            renderWeatherStation();
+            const ready = window.__getLA && window.__getLA().tempC != null;
+            if (!ready && __wsTries++ < 40) {
+                setTimeout(pollUntilReady, 250);
+            }
+        })();
+
+        // Refresh the clock + any drifted values every 20s
+        setInterval(renderWeatherStation, 20 * 1000);
+
+        // Re-render when About view becomes active so numbers are fresh
+        const __origShowView = showView;
+        showView = function(name) {
+            __origShowView(name);
+            if (name === 'about') renderWeatherStation();
+        };
     </script>
 
 </body>
