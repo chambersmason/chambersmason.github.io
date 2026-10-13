@@ -4,3 +4,4 @@ wrangler.jsonc
 .assetsignore
 CNAME
 node_modules
+.wrangler
