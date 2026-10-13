@@ -22,14 +22,17 @@
 /* The page is lit by the sun over Santa Monica. Runs before first paint. */
 (function(){
   var LAT=34.0195, LON=-118.4912, R=Math.PI/180;
-  function altitude(t){
+  function position(t){
     var d=t/864e5-10957.5;
     var g=(357.529+0.98560028*d)*R, q=280.459+0.98564736*d;
     var L=(q+1.915*Math.sin(g)+0.020*Math.sin(2*g))*R, e=(23.439-3.6e-7*d)*R;
     var ra=Math.atan2(Math.cos(e)*Math.sin(L),Math.cos(L)), dec=Math.asin(Math.sin(e)*Math.sin(L));
     var lst=((18.697374558+24.06570982441908*d)%24)*15*R+LON*R, h=lst-ra, la=LAT*R;
-    return Math.asin(Math.sin(la)*Math.sin(dec)+Math.cos(la)*Math.cos(dec)*Math.cos(h))/R;
+    var alt=Math.asin(Math.sin(la)*Math.sin(dec)+Math.cos(la)*Math.cos(dec)*Math.cos(h));
+    var az=Math.atan2(Math.sin(h),Math.cos(h)*Math.sin(la)-Math.tan(dec)*Math.cos(la))/R+180;
+    return {alt:alt/R,az:(az+360)%360};
   }
+  function altitude(t){return position(t).alt}
   var S={
     dusk:  ['#E7DAC9','#211A13'],
     gold:  ['#EEE3D4','#231C15'],
@@ -46,10 +49,30 @@
     if(a<4)  return {c:pair(S.dusk,S.gold,ease((a+6)/10)),dark:false};
     return {c:pair(S.gold,S.day,ease((a-4)/22)),dark:false};
   }
+  function light(pos,s){
+    var a=pos.alt, az=pos.az, o, r, sy, b, c, go, gc, gm, gx;
+    if(a>-2){
+      var k=ease((a+2)/10), low=ease((16-a)/14);
+      o=.13*k*(1-.38*low);
+      r=Math.max(-24,Math.min(24,(az-180)*.24));
+      sy=1+Math.min(.6,.12/Math.tan(Math.max(a,3)*R));
+      b=1.6+(1-ease(a/40))*6.5;
+      c=mix('#3A4458','#57405F',low);
+      go=.55*low*k; gc='#FFB06A'; gm='soft-light'; gx=az>180?'100%':'0%';
+    }else{
+      var n=ease((-2-a)/8);
+      o=.42*n; r=10; sy=1.15; b=10; c='#000000';
+      go=.16*n; gc='#9DB3D6'; gm='screen'; gx='100%';
+    }
+    s.setProperty('--sh-o',o.toFixed(3)); s.setProperty('--sh-r',r.toFixed(2)+'deg');
+    s.setProperty('--sh-sy',sy.toFixed(3)); s.setProperty('--sh-b',b.toFixed(1)+'px'); s.setProperty('--sh-c',c);
+    s.setProperty('--gl-o',go.toFixed(3)); s.setProperty('--gl-c',gc); s.setProperty('--gl-m',gm); s.setProperty('--gl-x',gx);
+  }
   function apply(t){
-    var a=altitude(t), p=palette(a), bg=p.c[0], ink=p.c[1], s=document.documentElement.style;
+    var pos=position(t), a=pos.alt, p=palette(a), bg=p.c[0], ink=p.c[1], s=document.documentElement.style;
+    light(pos,s);
     s.setProperty('--bg',bg); s.setProperty('--ink',ink);
-    s.setProperty('--mute',mix(bg,ink,p.dark?.6:.67)); s.setProperty('--rule',mix(bg,ink,p.dark?.18:.13));
+    s.setProperty('--mute',mix(bg,ink,p.dark?.6:.7)); s.setProperty('--rule',mix(bg,ink,p.dark?.18:.13));
     s.colorScheme=p.dark?'dark':'light';
     var m=document.querySelector('meta[name=theme-color]'); if(m) m.content=bg;
     return a;
@@ -107,16 +130,37 @@ footer button{font:inherit;color:var(--ink);background:none;border:0;padding:0;m
 footer button:hover{opacity:.62}
 .tnum{font-variant-numeric:tabular-nums}
 
+/* Light: palm shadows and window glow cast over the page by the real sun */
+.light{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;opacity:0;transition:opacity 2.2s ease}
+.light.on{opacity:1}
+.glow{position:absolute;inset:0;background:radial-gradient(80% 70% at var(--gl-x,100%) 0%,var(--gl-c,#FFB06A),transparent 72%);
+  opacity:var(--gl-o,0);mix-blend-mode:var(--gl-m,soft-light);transition:opacity .8s ease}
+.fronds{position:absolute;inset:-12% -12% -12% -12%;opacity:var(--sh-o,0);mix-blend-mode:multiply;color:var(--sh-c,#3A4458);transition:opacity .8s ease}
+.sway{position:absolute;inset:0;transform-origin:92% 0;will-change:transform;animation:sway 11s ease-in-out infinite alternate}
+.cast{position:absolute;inset:0;transform-origin:92% 0;transform:rotate(var(--sh-r,0deg)) scaleY(var(--sh-sy,1));filter:blur(var(--sh-b,4px))}
+.cast svg{display:block;width:100%;height:100%}
+.sway.b{animation-duration:7s;animation-delay:-3s}
+@keyframes sway{0%{transform:rotate(-.9deg) translate3d(0,0,0)}55%{transform:rotate(.5deg) translate3d(-.4%,.3%,0)}100%{transform:rotate(1.1deg) translate3d(.2%,-.2%,0)}}
+main{position:relative;z-index:1}
+
 @media (max-width:640px){
   .work a{grid-template-columns:1fr auto;row-gap:2px;padding:15px 0 16px}
   .work .what{grid-column:1 / -1;grid-row:2}
   .work .url{font-size:13px}
   footer{flex-direction:column;align-items:flex-start;gap:12px}
+  .fronds{transform:translate(34%,-16%) scale(.95)}
 }
-@media (prefers-reduced-motion:reduce){*{transition:none!important}.play{display:none}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}.play{display:none}.sway{animation:none}}
 </style>
 </head>
 <body>
+<div class="light" aria-hidden="true">
+  <div class="glow"></div>
+  <div class="fronds">
+    <div class="sway"><div class="cast"><svg id="fronds-a" viewBox="0 0 1000 1000" preserveAspectRatio="xMaxYMin slice"></svg></div></div>
+    <div class="sway b"><div class="cast"><svg id="fronds-b" viewBox="0 0 1000 1000" preserveAspectRatio="xMaxYMin slice"></svg></div></div>
+  </div>
+</div>
 <main>
   <h1>Mason Chambers builds AI products in Los Angeles.</h1>
   <p class="intro">Lead AI Product Engineer at <a href="https://www.system1.com">System1</a>. Founder of <a href="https://www.mase-services.com">Mase Services</a>, an AI consultancy for operations&#8209;heavy businesses. Previously Director of AI Strategy at Industry Intelligence.</p>
@@ -145,11 +189,43 @@ footer button:hover{opacity:.62}
       <path id="arcB" fill="none" stroke="var(--mute)" stroke-width="1" stroke-linecap="round" stroke-dasharray="1.5 3" clip-path="url(#below)"/>
       <circle id="dot" r="3.5" fill="var(--ink)" stroke="var(--bg)" stroke-width="2"/>
     </svg>
-    <p><span id="sunline">Colors on this page follow the sun over Santa Monica.</span> <button class="play" type="button">Play a day</button></p>
+    <p><span id="sunline">The light and shadows on this page follow the sun over Santa Monica.</span> <button class="play" type="button">Play a day</button></p>
   </footer>
 </main>
 
 <script>
+(function(){
+  /* Palm fronds, drawn once. Their shadows are what the sun casts across the page. */
+  (function(){
+    var seed=7; function rnd(){seed=seed*16807%2147483647;return seed/2147483647}
+    function frond(ox,oy,deg,len,droop){
+      var N=44, a=deg*Math.PI/180, dr=droop*Math.PI/180, x=ox, y=oy, pts=[[x,y,a]], i, out='';
+      for(i=1;i<=N;i++){var t=i/N, aa=a+dr*t*t; x+=Math.cos(aa)*len/N; y+=Math.sin(aa)*len/N; pts.push([x,y,aa])}
+      var rach='M'+pts.map(function(p){return p[0].toFixed(1)+' '+p[1].toFixed(1)}).join('L');
+      out+='<path d="'+rach+'" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/>';
+      for(i=5;i<N;i+=1){
+        var p=pts[i], t=i/N, L=len*.4*Math.pow(Math.sin(Math.PI*Math.min(1,t*1.08)),.75)*(.82+.36*rnd());
+        [-1,1].forEach(function(sd){
+          if(rnd()<.16) return;
+          var LL=L*(.62+.6*rnd());
+          var la=p[2]+sd*(1.0-.4*t)+(rnd()-.5)*.34, ca=Math.cos(la), sa=Math.sin(la), w=Math.max(2.4,LL*.032);
+          var nx=-sa, ny=ca, g=LL*.34;
+          var tx=p[0]+ca*LL, ty=p[1]+sa*LL+g, cx=p[0]+ca*LL*.5, cy=p[1]+sa*LL*.5+g*.15;
+          out+='<path d="M'+(p[0]+nx*w*.5).toFixed(1)+' '+(p[1]+ny*w*.5).toFixed(1)+
+            'Q'+(cx+nx*w).toFixed(1)+' '+(cy+ny*w).toFixed(1)+' '+tx.toFixed(1)+' '+ty.toFixed(1)+
+            'Q'+(cx-nx*w).toFixed(1)+' '+(cy-ny*w).toFixed(1)+' '+(p[0]-nx*w*.5).toFixed(1)+' '+(p[1]-ny*w*.5).toFixed(1)+'Z" fill="currentColor"/>';
+        });
+      }
+      return out;
+    }
+    var O=[1250,-320];
+    document.getElementById('fronds-a').innerHTML=
+      frond(O[0],O[1],120,940,22)+frond(O[0],O[1],150,1020,-30);
+    document.getElementById('fronds-b').innerHTML=
+      frond(O[0],O[1],136,900,-8)+frond(O[0],O[1],170,860,-34);
+    requestAnimationFrame(function(){document.querySelector('.light').classList.add('on')});
+  })();
+})();
 (function(){
   var sun=window.__sun, DAY=864e5, W=132, H=40, MID=20;
   var arcA=document.getElementById('arcA'), arcB=document.getElementById('arcB'), dot=document.getElementById('dot');
@@ -176,7 +252,7 @@ footer button:hover{opacity:.62}
     var n=Math.abs(Math.round(a)), up=sun.altitude(t+6e5)>a, where;
     if(a>=-0.5) where=n+'° above the horizon and '+(up?'rising':'setting');
     else where=n+'° below the horizon';
-    return 'Santa Monica, <span class="tnum">'+time+'</span>. Colors on this page follow the sun, now '+where+'.';
+    return 'Santa Monica, <span class="tnum">'+time+'</span>. The light and shadows here follow the sun, now '+where+'.';
   }
   function render(t){var a=sun.apply(t);place(t);line.innerHTML=words(t,a)}
 
