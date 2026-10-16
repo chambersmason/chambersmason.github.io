@@ -6,7 +6,8 @@ export default {
     const host = url.hostname;
 
     if (host.startsWith("design.")) {
-      if (!url.pathname.startsWith("/assets/")) {
+      const shared = url.pathname.startsWith("/assets/") || url.pathname === "/favicon.ico" || url.pathname === "/apple-touch-icon.png";
+      if (!shared) {
         url.pathname = "/design" + url.pathname;
       }
       return env.ASSETS.fetch(new Request(url, request));
