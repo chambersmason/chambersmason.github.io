@@ -3,6 +3,7 @@
 //
 //   /qr            counts a QR scan, then forwards to the homepage
 //   /_v            beacon from /assets/v.js: page views, link clicks, time on page
+//   /sky.json      live Santa Monica weather and tonight's sunset forecast, cached for ten minutes
 //   /admin         the private dashboard (needs the admin key, see ADMIN_KEY_SHA256)
 //
 // The design subdomain is the /design folder; shared files under /assets stay shared.
@@ -20,6 +21,7 @@ export default {
     const path = url.pathname;
 
     if (path === "/_v" && request.method === "POST") return beacon(request, env, ctx);
+    if (path === "/sky.json") return skyJson(request, ctx);
     if (path === "/qr" || path === "/qr/") return qr(request, env, ctx, url);
     if (path === "/admin" || path.startsWith("/admin/")) return admin(request, env, url);
 
@@ -42,6 +44,81 @@ export default {
     return env.ASSETS.fetch(request);
   },
 };
+
+/* ---------- the sky over Santa Monica: live weather and a sunset forecast for the homepage ---------- */
+
+const SKY_URL = "https://api.open-meteo.com/v1/forecast?latitude=34.0195&longitude=-118.4912"
+  + "&current=temperature_2m,precipitation,weather_code,cloud_cover_low,cloud_cover_mid,cloud_cover_high,wind_speed_10m,wind_gusts_10m,visibility"
+  + "&hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high,wind_speed_10m,wind_gusts_10m,precipitation,visibility"
+  + "&daily=sunrise,sunset&timezone=America%2FLos_Angeles&forecast_days=2&wind_speed_unit=mph&temperature_unit=fahrenheit&timeformat=unixtime";
+
+const n01 = (v) => Math.max(0, Math.min(1, (Number(v) || 0) / 100));
+const num0 = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
+
+// How good will the sunset be, 0 to 10? High and mid cloud catch the light; low cloud on the horizon blocks it.
+function sunsetScore(w) {
+  const peak = (x, at, width) => Math.max(0, 1 - Math.abs(x - at) / width);
+  let s = 3.6 + 4.2 * peak(w.high, 0.55, 0.55) + 2.2 * peak(w.mid, 0.35, 0.45);
+  const block = Math.max(0, Math.min(1, (w.low - 0.3) / 0.6));
+  s *= 1 - 0.85 * block * block * (3 - 2 * block);
+  if (w.mid > 0.9 && w.high > 0.85) s *= 0.55;
+  if (w.rain > 0.2) s *= 0.5;
+  if (w.vis < 8000) s -= 1.2;
+  s = Math.max(0, Math.min(10, s));
+  const label = s >= 7.5 ? "vivid" : s >= 5.5 ? "colorful" : s >= 3.5 ? (w.high + w.mid < 0.15 ? "clean and pale" : "soft") : s >= 2 ? "muted" : "grey";
+  const why = w.rain > 0.2 ? "Rain at the horizon"
+    : w.low > 0.6 ? "Low cloud will block the horizon"
+    : w.vis < 8000 ? "Haze will dull the color"
+    : w.mid > 0.9 && w.high > 0.85 ? "The cloud is too thick for light to get under"
+    : w.high >= 0.25 && w.high <= 0.85 ? "High cloud will catch the light"
+    : w.mid >= 0.2 && w.mid <= 0.7 ? "Mid-level cloud will catch the light"
+    : w.high + w.mid < 0.15 ? "Clear sky, with little cloud to catch the light"
+    : "Some cloud to catch the light";
+  return { score: Math.round(s * 10) / 10, label, why };
+}
+
+function shapeSky(j, at) {
+  const c = j.current || {}, h = j.hourly || {}, d = j.daily || {};
+  const time = h.time || [];
+  const row = (i) => [n01(h.cloud_cover_low?.[i]), n01(h.cloud_cover_mid?.[i]), n01(h.cloud_cover_high?.[i]),
+    num0(h.wind_speed_10m?.[i]), num0(h.wind_gusts_10m?.[i]), num0(h.precipitation?.[i]), num0(h.visibility?.[i], 24000)];
+  const hours = time.map((_, i) => row(i).map((v) => Math.round(v * 100) / 100));
+  const asObj = (a) => ({ low: a[0], mid: a[1], high: a[2], wind: a[3], gust: a[4], rain: a[5], vis: a[6] });
+  const sunsets = (d.sunset || []).map((s) => {
+    const t = s * 1000, x = (s - time[0]) / 3600, i = Math.max(0, Math.min(hours.length - 2, Math.floor(x))), f = Math.max(0, Math.min(1, x - i));
+    if (!hours.length) return null;
+    const w = asObj(hours[i].map((v, k) => v + (hours[i + 1][k] - v) * f));
+    return { t, ...sunsetScore(w) };
+  }).filter(Boolean);
+  return {
+    ok: true, at,
+    now: { low: n01(c.cloud_cover_low), mid: n01(c.cloud_cover_mid), high: n01(c.cloud_cover_high), wind: num0(c.wind_speed_10m), gust: num0(c.wind_gusts_10m),
+      rain: num0(c.precipitation), vis: num0(c.visibility, 24000), code: num0(c.weather_code), temp: Math.round(num0(c.temperature_2m)) },
+    h0: time.length ? time[0] * 1000 : 0, hours, sunsets, sunrise: (d.sunrise || []).map((s) => s * 1000),
+  };
+}
+
+async function skyJson(request, ctx) {
+  const cache = caches.default, key = new Request("https://masonchambers.com/__sky/v1");
+  let res = await cache.match(key);
+  if (!res) {
+    let body;
+    try {
+      const r = await fetch(SKY_URL, { headers: { accept: "application/json" }, cf: { cacheTtl: 600 } });
+      if (!r.ok) throw new Error("feed " + r.status);
+      body = shapeSky(await r.json(), Date.now());
+      if (!body.hours.length) throw new Error("empty feed");
+    } catch (e) {
+      // No weather: the page falls back to the sun alone.
+      return Response.json({ ok: false }, { headers: { "cache-control": "no-store" } });
+    }
+    res = Response.json(body, { headers: { "cache-control": "public, max-age=600" } });
+    ctx.waitUntil(cache.put(key, res.clone()));
+  }
+  const out = new Response(res.body, res);
+  out.headers.set("cache-control", "public, max-age=300");
+  return out;
+}
 
 /* ---------- capture ---------- */
 
