@@ -75,7 +75,7 @@
     var evening=az>180, sc=k.score==null?null:clamp(k.score/10);
     if(a>-2){
       var up=ease((a+2)/10), low=ease((16-a)/14);
-      o=.13*up*(1-.38*low)*direct;
+      o=.19*up*(1-.38*low)*direct;
       r=Math.max(-24,Math.min(24,(az-180)*.24));
       sy=1+Math.min(.6,.12/Math.tan(Math.max(a,3)*R));
       b=1.6+(1-ease(a/40))*6.5+k.occl*9+k.fog*16;                  /* thin cloud and fog widen the penumbra */
@@ -211,7 +211,8 @@ footer button:hover{opacity:.62}
 .light.on{opacity:1}
 .glow{position:absolute;inset:0;background:radial-gradient(80% 70% at var(--gl-x,100%) 0%,var(--gl-c,#FFB06A),transparent 72%);
   opacity:var(--gl-o,0);mix-blend-mode:var(--gl-m,soft-light);transition:opacity .8s ease}
-.fronds{position:absolute;inset:-12% -12% -12% -12%;opacity:var(--sh-o,0);mix-blend-mode:multiply;color:var(--sh-c,#3A4458);transition:opacity .8s ease}
+.shade{position:absolute;inset:0;opacity:var(--sh-o,0);mix-blend-mode:multiply;color:var(--sh-c,#3A4458);transition:opacity 1.2s ease}
+.fronds{position:absolute;inset:-12% -12% -12% -12%}
 .sway{position:absolute;inset:0;transform-origin:92% 0;will-change:transform;animation:sway var(--sw-d,11s) ease-in-out infinite alternate}
 .cast{position:absolute;inset:0;transform-origin:92% 0;transform:rotate(var(--sh-r,0deg)) scaleY(var(--sh-sy,1));filter:blur(var(--sh-b,4px))}
 .cast svg{display:block;width:100%;height:100%}
@@ -236,10 +237,10 @@ main{position:relative;z-index:1}
 <body>
 <div class="light" aria-hidden="true">
   <div class="glow"></div>
-  <div class="fronds">
+  <div class="shade"><div class="fronds">
     <div class="sway"><div class="cast"><svg id="fronds-a" viewBox="0 0 1000 1000" preserveAspectRatio="xMaxYMin slice"></svg></div></div>
     <div class="sway b"><div class="cast"><svg id="fronds-b" viewBox="0 0 1000 1000" preserveAspectRatio="xMaxYMin slice"></svg></div></div>
-  </div>
+  </div></div>
   <div class="haze"></div>
   <canvas class="rain"></canvas>
 </div>
@@ -481,45 +482,54 @@ main{position:relative;z-index:1}
 /* The visitor's own shadow, cast by the same sky as the palms. Camera only starts when asked. */
 .hand{position:absolute;left:0;top:0;width:84px;height:84px;margin:-42px 0 0 -42px;border-radius:50%;pointer-events:none;opacity:0;
   background:radial-gradient(closest-side,var(--sh-c,#3A4458) 0%,var(--sh-c,#3A4458) 38%,transparent 100%);mix-blend-mode:multiply;transition:opacity .5s ease;will-change:transform,opacity}
-.self{position:absolute;left:50%;bottom:-6%;height:112%;width:auto;pointer-events:none;opacity:0;mix-blend-mode:multiply;transform-origin:50% 100%;
-  transition:opacity 1s ease;filter:blur(calc(6px + var(--sh-b,4px)*1.6));will-change:transform,opacity}
+/* The figure is drawn twice: crisp where it meets the bottom of the page, soft where the shadow has travelled furthest. */
+.self{position:absolute;left:50%;bottom:-6%;height:min(112%,150vw);width:auto;pointer-events:none;opacity:0;transform-origin:50% 100%;transition:opacity 1.2s ease;will-change:transform,opacity}
+.self.near{filter:blur(calc(3px + var(--sh-b,4px)*.7));-webkit-mask-image:linear-gradient(to top,#000 28%,transparent 72%);mask-image:linear-gradient(to top,#000 28%,transparent 72%)}
+.self.far{filter:blur(calc(9px + var(--sh-b,4px)*2.1));-webkit-mask-image:linear-gradient(to top,transparent 22%,#000 66%);mask-image:linear-gradient(to top,transparent 22%,#000 66%)}
+/* At night a shadow needs light to fall out of: a faint wash of moonlight comes up behind it while someone is casting one. */
+.wash{position:absolute;inset:0;pointer-events:none;opacity:0;mix-blend-mode:screen;transition:opacity 1.6s ease;background:radial-gradient(130% 100% at 72% 0%,#A9BBD8,#6F82A6 55%,transparent 115%)}
 .castline{display:block;margin-top:9px}
 .castline button{margin-left:0}
 .castline .note{margin-left:6px}
 </style>
 <script>
 (function(){
-  var sun=window.__sun, R=Math.PI/180, last=null, light=document.querySelector('.light');
+  var POINTER=false;
+  var sun=window.__sun, R=Math.PI/180, light=document.querySelector('.light'), shade=document.querySelector('.shade'), fronds=document.querySelector('.fronds');
   var hand=document.createElement('div'); hand.className='hand'; light.appendChild(hand);
-  var self=document.createElement('canvas'); self.className='self'; self.width=self.height=2; light.appendChild(self);
+  function cv(c){var e=document.createElement('canvas');e.className='self '+c;e.width=e.height=2;shade.appendChild(e);return e}
+  var near=cv('near'), far=cv('far');
+  var wash=document.createElement('div'); wash.className='wash'; light.insertBefore(wash,shade); var dark=false;
   function ease(x){x=Math.max(0,Math.min(1,x));return x*x*(3-2*x)}
-  var S={dx:0,dy:30,len:30,o:.2,skew:0,sy:1,rgb:[58,68,88]};
+  var S={dx:0,dy:30,len:30,o:.2,skew:0,sy:1,rgb:[58,68,88],wind:1};
 
   /* Every time the page relights, work out where a shadow should fall and how strong it is. */
   function relight(r){
-    last=r; var cs=getComputedStyle(document.documentElement), o=parseFloat(cs.getPropertyValue('--sh-o'))||0;
+    var cs=getComputedStyle(document.documentElement), o=parseFloat(cs.getPropertyValue('--sh-o'))||0;
     var c=(cs.getPropertyValue('--sh-c')||'#3A4458').trim(); if(/^#[0-9a-f]{6}$/i.test(c)) S.rgb=[1,3,5].map(function(i){return parseInt(c.slice(i,i+2),16)});
+    S.wind=parseFloat(cs.getPropertyValue('--sw'))||1;
     var src=r.alt>-2?{alt:r.alt,az:r.az}:(r.moon&&r.moon.alt>0?{alt:r.moon.alt,az:r.moon.az}:null);
     if(src){var a=Math.max(src.alt,4);S.len=22+86*(1-ease(a/55));S.dx=-Math.sin(src.az*R)*S.len;S.dy=S.len*.62;
       S.skew=Math.max(-24,Math.min(24,(src.az-180)*.24));S.sy=1+Math.min(.6,.12/Math.tan(Math.max(src.alt,3)*R))}
     else{S.len=16;S.dx=0;S.dy=14;S.skew=0;S.sy=1.1}
-    /* A floor keeps the shadow visible to try at night or under cloud, when a real one would be nearly gone. */
-    S.o=r.dark?Math.max(.34,o*1.1):Math.min(.5,Math.max(.1,o*3.2));
+    /* While someone is casting a shadow, palm and figure share one strength, with a floor so there is something to see at night or under cloud. */
+    dark=r.dark; S.o=r.dark?Math.max(.6,o):Math.min(.5,Math.max(.2,o*2));
+    S.po=r.dark?Math.max(.34,o*1.1):Math.min(.5,Math.max(.1,o*2.4));
     paint();
   }
   var orig=sun.apply; sun.apply=function(t,w){var r=orig(t,w);try{relight(r)}catch(e){}return r};
 
-  /* 1. Pointer shadow: follows the cursor, or a finger while it touches the page. */
   var px=-200,py=-200,tx=-200,ty=-200,shown=0,cam=0,hideT=0,raf=0;
   var reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
   function paint(){
     var ang=Math.atan2(S.dy,S.dx)/R-90, st=1+S.len/52;
     hand.style.transform='translate3d('+(px+S.dx).toFixed(1)+'px,'+(py+S.dy).toFixed(1)+'px,0) rotate('+ang.toFixed(1)+'deg) scale(1,'+st.toFixed(2)+')';
     hand.style.filter='blur('+(5+S.len*.09).toFixed(1)+'px)';
-    hand.style.opacity=(shown&&!cam)?(S.o*1.25).toFixed(3):0;
-    hand.style.mixBlendMode=self.style.mixBlendMode='multiply';
-    self.style.transform='translateX(-50%) scaleX(-1) skewX('+(S.skew*.8).toFixed(1)+'deg) scaleY('+S.sy.toFixed(3)+')';
-    self.style.opacity=cam?S.o.toFixed(3):0;
+    hand.style.opacity=(shown&&!cam)?(S.po*1.25).toFixed(3):0;
+    /* Same light as the fronds: leaning with the sun's bearing, stretching as it gets low. */
+    var t='translateX(-50%) scaleX(-1) skewX('+(S.skew*.8).toFixed(1)+'deg) scaleY('+S.sy.toFixed(3)+')';
+    near.style.transform=far.style.transform=t; near.style.opacity=far.style.opacity=cam?1:0;
+    shade.style.opacity=cam?S.o.toFixed(3):''; wash.style.opacity=cam&&dark?.17:0;
   }
   function tick(){raf=0;var k=reduce?1:.22;px+=(tx-px)*k;py+=(ty-py)*k;paint();if(Math.abs(tx-px)+Math.abs(ty-py)>.4)raf=requestAnimationFrame(tick)}
   function move(e){
@@ -527,39 +537,47 @@ main{position:relative;z-index:1}
     if(e.pointerType!=='mouse') hideT=setTimeout(function(){shown=0;paint()},1400);
     if(!raf) raf=requestAnimationFrame(tick);
   }
-  /* The pointer shadow is only switched on at /shadow for now. */
+  if(POINTER){addEventListener('pointermove',move,{passive:true}); addEventListener('pointerdown',move,{passive:true});
+    document.addEventListener('mouseleave',function(){shown=0;paint()})}
 
-  /* 2. Camera shadow, only after the visitor asks. Frames are segmented on the device and never stored or sent anywhere. */
+  /* Camera shadow, only after the visitor asks. Frames are segmented on the device and never stored or sent anywhere. */
   var line=document.createElement('span'); line.className='castline';
   line.innerHTML='<button type="button" class="castbtn">Cast your shadow</button><span class="note">Uses your camera. The video never leaves your device.</span>';
   document.querySelector('footer p').appendChild(line);
   var btn=line.querySelector('.castbtn'), note=line.querySelector('.note');
-  var video=null, stream=null, seg=null, loop=0, busy=0, cx=null, img=null, flip=null;
+  var video=null, stream=null, seg=null, loop=0, busy=0, cx=null, cx2=null, img=null, flip=null, soft=null, was=null, stir=0, stirT=0;
   function say(t){note.textContent=t}
   function stop(msg){
-    cam=0; cancelAnimationFrame(loop); loop=0; busy=0;
+    cam=0; cancelAnimationFrame(loop); loop=0; busy=0; stir=stirT=0; fronds.style.removeProperty('--sw');
     if(stream){stream.getTracks().forEach(function(t){t.stop()});stream=null}
     if(video){video.srcObject=null}
     btn.textContent='Cast your shadow'; btn.disabled=false; say(msg||'Uses your camera. The video never leaves your device.'); paint();
   }
-  function draw(mask){
-    var w=mask.width,h=mask.height,f=mask.getAsFloat32Array();
-    if(self.width!==w||self.height!==h){self.width=w;self.height=h;cx=self.getContext('2d');img=cx.createImageData(w,h);flip=null}
+  function draw(f,w,h){
+    var n=w*h, i, j;
+    if(near.width!==w||near.height!==h){near.width=far.width=w;near.height=far.height=h;cx=near.getContext('2d');cx2=far.getContext('2d');img=cx.createImageData(w,h);flip=null;soft=new Float32Array(n);was=new Float32Array(n)}
     if(flip===null){ /* which way round is the mask? The top corners are almost always background. */
-      var s=0,n=0,q=Math.max(2,Math.floor(w*.08));
-      for(var y=0;y<q;y++)for(var x=0;x<q;x++){s+=f[y*w+x]+f[y*w+(w-1-x)];n+=2}
-      flip=s/n>.5;
+      var s=0,c=0,q=Math.max(2,Math.floor(w*.08));
+      for(var y=0;y<q;y++)for(var x=0;x<q;x++){s+=f[y*w+x]+f[y*w+(w-1-x)];c+=2}
+      flip=s/c>.5;
     }
-    var d=img.data,r=S.rgb[0],g=S.rgb[1],b=S.rgb[2];
-    for(var i=0,j=0;i<f.length;i++,j+=4){var p=flip?1-f[i]:f[i];p=p<.35?0:p>.65?1:(p-.35)/.3;d[j]=r;d[j+1]=g;d[j+2]=b;d[j+3]=p*255}
-    cx.putImageData(img,0,0);
+    var d=img.data,r=S.rgb[0],g=S.rgb[1],b=S.rgb[2],moved=0;
+    for(i=0,j=0;i<n;i++,j+=4){
+      var p=flip?1-f[i]:f[i]; moved+=Math.abs(p-was[i]); was[i]=p;
+      p=soft[i]=soft[i]*.4+p*.6;                                   /* steady the edge between frames */
+      p=p<.3?0:p>.7?1:(p-.3)/.4; d[j]=r;d[j+1]=g;d[j+2]=b;d[j+3]=p*255;
+    }
+    cx.putImageData(img,0,0); cx2.clearRect(0,0,w,h); cx2.drawImage(near,0,0);
+    /* Moving stirs the air: a wave of the arm rustles the fronds, then they settle back to the real wind. */
+    if(!reduce){stirT=Math.min(1,Math.max(0,moved/n-.004)*28); stir+=(stirT-stir)*(stirT>stir?.5:.06);
+      fronds.style.setProperty('--sw',(S.wind*(1+1.6*stir)+1.5*stir).toFixed(2))}
   }
   function frame(){
     if(!cam) return;
     loop=requestAnimationFrame(frame);
     if(busy||video.readyState<2||document.hidden) return;
     busy=1;
-    try{seg.segmentForVideo(video,performance.now(),function(res){try{var m=res.confidenceMasks&&res.confidenceMasks[0];if(m)draw(m)}finally{busy=0}})}
+    try{seg.segmentForVideo(video,performance.now(),function(res){try{var m=res.confidenceMasks&&res.confidenceMasks[0];if(m)draw(m.getAsFloat32Array(),m.width,m.height)}finally{busy=0}})}
     catch(e){busy=0;stop('The shadow stopped working in this browser.')}
   }
   function start(){
@@ -576,7 +594,7 @@ main{position:relative;z-index:1}
       return Promise.all([video.play(),ready]);
     }).then(function(){
       if(!stream) return;
-      cam=1; btn.disabled=false; btn.textContent='Stop'; say('That’s you, lit by the sky over Santa Monica. Move around.'); paint(); frame();
+      cam=1; btn.disabled=false; btn.textContent='Stop'; say('That’s you, under the same light as the palm. Move, and the fronds move with you.'); paint(); frame();
     }).catch(function(e){
       var n=e&&e.name;
       stop(n==='NotAllowedError'||n==='SecurityError'?'Camera access was declined, so there’s no shadow to cast.':n==='NotFoundError'?'No camera was found on this device.':'The shadow couldn’t start in this browser.');
@@ -584,7 +602,7 @@ main{position:relative;z-index:1}
   }
   btn.addEventListener('click',function(){cam||stream?stop():start()});
   addEventListener('pagehide',function(){if(stream)stop()});
-  window.__shadow={state:function(){return {cam:cam,S:S,shown:shown}}};
+  window.__shadow={state:function(){return {cam:cam,S:S,shown:shown,stir:stir}},fake:function(f,w,h){cam=1;paint();draw(f,w,h)}};
   if(window.__page) window.__page.now();
 })();
 </script>
