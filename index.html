@@ -225,6 +225,7 @@ footer button:hover{opacity:.62}
 .haze{position:absolute;inset:0;background:linear-gradient(180deg,var(--fog-c,#F1F1EE),var(--fog-c,#F1F1EE) 35%,transparent 130%);opacity:var(--fog-o,0);transition:opacity 1.2s ease}
 canvas.rain{display:none}
 /* Rain sits on the glass, in front of everything */
+.tiltline{display:block;margin-top:9px}.tiltline button{margin-left:0}
 canvas.glass{position:fixed;inset:0;width:100%;height:100%;z-index:4;pointer-events:none;opacity:0;transition:opacity 2s ease}
 @keyframes sway{0%{transform:rotate(calc(-.9deg*var(--sw,1))) translate3d(0,0,0)}55%{transform:rotate(calc(.5deg*var(--sw,1))) translate3d(-.4%,.3%,0)}100%{transform:rotate(calc(1.1deg*var(--sw,1))) translate3d(.2%,-.2%,0)}}
 main{position:relative;z-index:1}
@@ -462,12 +463,32 @@ html.fast *{transition:none!important}
       for(i=0,n=2+Math.random()*4|0;i<n;i++){var a=Math.random()*6.283,q=r*(1.4+Math.random()*2.2);blob(mx,x+Math.cos(a)*q,y+Math.sin(a)*q*.8,.7+Math.random()*1.1)}
       for(i=drops.length-1;i-->0;){o=drops[i]; var dx=o.x-x, dy=o.y-y, rr=(o.tr+r)*.92; if(!o.into&&dx*dx+dy*dy<rr*rr){join(d,o);break}}
     }
+    /* Which way is down? On a phone, the real direction of gravity across the screen, from how the phone is held. Flat on a table, nothing runs. */
+    var TX=0,TY=1,GX=0,GY=1,ux=0,uy=1,gm=1,tiltOn=0,D2R=Math.PI/180;
+    function onTilt(e){
+      if(e.beta==null||e.gamma==null) return;
+      var b=e.beta*D2R, g=e.gamma*D2R, x=Math.sin(g)*Math.cos(b), y=Math.sin(b), a=((screen.orientation&&screen.orientation.angle)||window.orientation||0)*D2R;
+      TX=x*Math.cos(a)+y*Math.sin(a); TY=-x*Math.sin(a)+y*Math.cos(a);
+    }
+    function listen(){if(!tiltOn){tiltOn=1;addEventListener('deviceorientation',onTilt)}}
+    var touch=matchMedia('(hover: none) and (pointer: coarse)').matches&&'DeviceOrientationEvent' in window;
+    var ask=touch&&typeof DeviceOrientationEvent.requestPermission==='function', tiltline=null;
+    if(ask){ /* iPhones only share motion after a tap, so the offer appears in the footer while it rains */
+      tiltline=document.createElement('span');tiltline.className='tiltline';tiltline.hidden=true;
+      tiltline.innerHTML='<button type="button">Tilt your phone to steer the rain</button>';
+      document.querySelector('footer p').appendChild(tiltline);
+      tiltline.firstChild.addEventListener('click',function(){
+        DeviceOrientationEvent.requestPermission().then(function(r){if(r==='granted'){listen();tiltline.hidden=true}else{tiltline.textContent='Motion access was declined, so the rain falls straight down.'}})
+          .catch(function(){tiltline.textContent='Tilt isn\u2019t available in this browser.'})});
+    }
     function step(dt){
-      var area=W*H/1e6, i, j, d, o, q;
+      var area=W*H/1e6, i, j, d, o, q, ez=1-Math.exp(-dt*7);
+      GX+=(TX-GX)*ez; GY+=(TY-GY)*ez; gm=Math.min(1,Math.sqrt(GX*GX+GY*GY)); if(gm>.03){ux=GX/gm;uy=GY/gm} if(gm<.12)gm=0;
+      var pxp=uy, pyp=-ux;
       if(k>0){
         q=area*(24+190*k)*dt; for(i=Math.floor(q)+(Math.random()<q%1?1:0);i-->0;) blob(mx,Math.random()*W,Math.random()*H,.8+Math.pow(Math.random(),2)*1.9);
         if(Math.random()<area*(1.6+11*k)*dt) land(Math.random()*W,Math.random()*H*.96,2.6+Math.pow(Math.random(),2.4)*(6+5*k));
-        if(Math.random()<area*(.2+1.1*k)*dt) drops.push(mk(Math.random()*W,-10,4.6+Math.random()*3.6,1));     /* water gathering at the top of the frame lets go */
+        if(GY>.5&&Math.random()<area*(.2+1.1*k)*dt) drops.push(mk(Math.random()*W,-10,4.6+Math.random()*3.6,1));     /* water gathering at the top of the frame lets go */
       }
       /* mist dries slowly, tracks dry fast: as a track thins it narrows to a thread, then breaks into beads */
       mx.save();mx.setTransform(1,0,0,1,0,0);mx.globalCompositeOperation='destination-out';mx.globalAlpha=Math.min(1,dt*(k>0?.05:.5));mx.fillRect(0,0,mist.width,mist.height);mx.restore();
@@ -485,31 +506,33 @@ html.fast *{transition:none!important}
           }
         }else if(!d.mv){
           d.tr-=dt*.035;
-          if(d.tr>3.2) d.y+=(d.tr-3.2)*.5*dt;                                  /* a heavy bead sags before it lets go */
-          if(d.tr>3.9&&Math.random()<dt*(d.tr-3.7)*.5) d.mv=1;
+          if(d.tr>3.2){var sg=(d.tr-3.2)*.5*dt*gm; d.x+=ux*sg; d.y+=uy*sg}          /* a heavy bead sags before it lets go */
+          if(d.tr>3.9&&Math.random()<dt*(d.tr-3.7)*.5*gm) d.mv=1;
         }else{
           /* stick-slip: friction at the contact line holds the drop until its weight wins, so it runs in slow surges and pauses */
           d.ph+=dt;
-          var g=sn(d.ph*.8+d.seed), hold=g<.2?0:(g-.2)/.8, vt=Math.max(0,d.r-2.4)*74*hold*hold+(d.r>8?(d.r-8)*30:0);
+          var g=sn(d.ph*.8+d.seed), hold=g<.2?0:(g-.2)/.8, vt=(Math.max(0,d.r-2.4)*74*hold*hold+(d.r>8?(d.r-8)*30:0))*gm;
           d.v+=(vt-d.v)*(1-Math.exp(-dt*(vt>d.v?3:4.2)));
           var vxt=(sn(d.ph*.55+d.seed*3.1)-.5)*30+wind*7; d.vx+=(vxt-d.vx)*(1-Math.exp(-dt*2.2));
-          var py=d.y, pxx=d.x; d.y+=d.v*dt; d.x+=d.vx*dt*Math.min(1,d.v/36);
-          var n=Math.max(1,Math.ceil((d.y-py)/(d.r*.4)));
+          var py=d.y, pxx=d.x, ds=d.v*dt, lat=d.vx*dt*Math.min(1,d.v/36); d.x+=ux*ds+pxp*lat; d.y+=uy*ds+pyp*lat;
+          var moved=Math.sqrt((d.x-pxx)*(d.x-pxx)+(d.y-py)*(d.y-py)), n=Math.max(1,Math.ceil(moved/(d.r*.4))); d.len=(d.len||0)+moved;
           for(j=1;j<=n;j++){var f=j/n, X=pxx+(d.x-pxx)*f, Y=py+(d.y-py)*f;
-            blob(tx,X,Y-d.r*.55,d.r*(.47+.08*sn(Y*.05+d.seed)),1,.92);                 /* a thin film that narrows and dries behind the drop */
+            blob(tx,X-ux*d.r*.55,Y-uy*d.r*.55,d.r*(.47+.08*sn(d.len*.05+d.seed)),1,.92);                 /* a thin film that narrows and dries behind the drop */
             mx.globalCompositeOperation='destination-out';mx.globalAlpha=1;mx.beginPath();mx.arc(X,Y,d.r*1.25,0,6.283);mx.fill();mx.globalCompositeOperation='source-over'}
-          d.acc+=d.y-py; if(k>0) d.tr=Math.min(16,d.tr+(d.y-py)*.0016);              /* swallows the mist in its path */
+          if(k>0) d.tr=Math.min(16,d.tr+moved*.0016);              /* swallows the mist in its path */
           for(j=drops.length;j-->0;){o=drops[j]; if(o===d||o.dead||o.into) continue;
             var ex=o.x-d.x, ey=o.y-d.y, rr=(o.r+d.r)*1.04; if(ex*ex+ey*ey<rr*rr) join(d,o)}
         }
-        if(d.dead||(d.tr<.9&&!d.into)||d.y-d.r>H+30){d.dead=1;drops.splice(i,1)}
+        if(d.dead||(d.tr<.9&&!d.into)||d.y-d.r>H+30||d.y<-60||d.x<-60||d.x>W+60){d.dead=1;drops.splice(i,1)}
       }
       if(drops.length>420) drops.splice(0,drops.length-420);
     }
     function draw(){
       hx.setTransform(1,0,0,1,0,0);hx.globalCompositeOperation='source-over';hx.globalAlpha=1;hx.clearRect(0,0,hm.width,hm.height);
       hx.drawImage(mist,0,0);hx.globalCompositeOperation='lighter';hx.drawImage(trail,0,0);hx.setTransform(S,0,0,S,0,0);
-      for(var i=0;i<drops.length;i++){var d=drops[i], st=1+Math.min(.85,d.v/300);blob(hx,d.x,d.y-(st-1)*d.r*.7,d.r,st)}
+      var rot=Math.atan2(uy,ux)-Math.PI/2;
+      for(var i=0;i<drops.length;i++){var d=drops[i], st=1+Math.min(.85,d.v/300);
+        if(st<1.03) blob(hx,d.x,d.y,d.r,1); else {hx.save();hx.translate(d.x,d.y);hx.rotate(rot);blob(hx,0,-(st-1)*d.r*.7,d.r,st);hx.restore()}}
       hx.globalAlpha=1;
       if(!gl) return;
       var dark=document.documentElement.style.colorScheme==='dark';
@@ -528,12 +551,14 @@ html.fast *{transition:none!important}
       if(on||document.hidden) return;
       if(!W){initGL();if(!gl){cv.style.display='none';return}size()}
       on=1;idle=0;
+      if(touch&&!tiltOn){ /* Android shares motion freely; an iPhone refuses until the footer button is tapped */
+        if(!ask) listen(); else try{DeviceOrientationEvent.requestPermission().then(function(r){if(r==='granted'){listen();if(tiltline)tiltline.hidden=true}}).catch(function(){})}catch(e){}}
       if(reduce){for(var i=0;i<240;i++)step(.05);draw();on=0;return}
       last=performance.now();requestAnimationFrame(frame);
     }
     addEventListener('resize',function(){if(W){size();if(reduce&&k)start()}});
     document.addEventListener('visibilitychange',function(){if(document.hidden)on=0;else if(k)start()});
-    return {set:function(v,w){v=Math.round(v*20)/20;wind=w||0;if(v===k)return;k=v;cv.style.opacity=k?1:0;if(k){idle=0;start()}}};
+    return {set:function(v,w){v=Math.round(v*20)/20;wind=w||0;if(v===k)return;k=v;cv.style.opacity=k?1:0;if(tiltline&&!tiltOn)tiltline.hidden=!k;if(k){idle=0;start()}}};
   })();
 
   var playing=0, scrubbing=0, raf;
