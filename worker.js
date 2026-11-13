@@ -98,22 +98,54 @@ function shapeSky(j, at) {
   };
 }
 
+// What the weather station at Santa Monica Airport is actually reporting. Forecast models miss when rain starts; the station does not.
+const OBS_URL = "https://api.weather.gov/stations/KSMO/observations/latest";
+function applyObservation(now, o, at) {
+  const p = o && o.properties;
+  if (!p || !p.timestamp || at - Date.parse(p.timestamp) > 100 * 60000) return now;
+  const text = String(p.textDescription || "").toLowerCase();
+  let rain = 0;
+  if (/thunder|heavy rain|heavy showers/.test(text)) rain = 6;
+  else if (/light rain|light showers|light drizzle/.test(text)) rain = 0.9;
+  else if (/drizzle/.test(text)) rain = 0.5;
+  else if (/rain|showers/.test(text)) rain = 2.6;
+  const hour = Number(p.precipitationLastHour && p.precipitationLastHour.value) || 0;
+  now.rain = rain ? Math.max(rain, now.rain) : hour > 0 ? now.rain : 0;
+  for (const l of p.cloudLayers || []) {
+    const cover = l.amount === "OVC" ? 0.97 : l.amount === "BKN" ? 0.72 : 0, base = Number(l.base && l.base.value) || 0;
+    if (!cover) continue;
+    if (base < 2000) now.low = Math.max(now.low, cover); else if (base < 6000) now.mid = Math.max(now.mid, cover); else now.high = Math.max(now.high, cover);
+  }
+  if (/fog/.test(text)) now.vis = Math.min(now.vis, 800);
+  const v = Number(p.visibility && p.visibility.value); if (v > 0 && !/fog/.test(text)) now.vis = Math.min(now.vis, Math.max(v, 1200));
+  now.obs = p.textDescription || "";
+  return now;
+}
+
 async function skyJson(request, ctx) {
-  const cache = caches.default, key = new Request("https://masonchambers.com/__sky/v1");
+  const cache = caches.default, key = new Request("https://masonchambers.com/__sky/v2"), lastKey = new Request("https://masonchambers.com/__sky/v2-last");
   let res = await cache.match(key);
   if (!res) {
     let body;
     try {
-      const r = await fetch(SKY_URL, { headers: { accept: "application/json" }, cf: { cacheTtl: 600 } });
+      const [r, o] = await Promise.all([
+        fetch(SKY_URL, { headers: { accept: "application/json" } }),
+        fetch(OBS_URL, { headers: { accept: "application/geo+json", "user-agent": "masonchambers.com homepage weather" } }).then((x) => (x.ok ? x.json() : null)).catch(() => null),
+      ]);
       if (!r.ok) throw new Error("feed " + r.status);
-      body = shapeSky(await r.json(), Date.now());
+      const at = Date.now();
+      body = shapeSky(await r.json(), at);
       if (!body.hours.length) throw new Error("empty feed");
+      try { applyObservation(body.now, o, at); } catch (e) {}
     } catch (e) {
-      // No weather: the page falls back to the sun alone.
+      // The forecast feed fails now and then. Serve the last good sky (its hourly forecast still holds); with none, the page falls back to the sun alone.
+      const last = await cache.match(lastKey);
+      if (last) { const out = new Response(last.body, last); out.headers.set("cache-control", "public, max-age=120"); return out; }
       return Response.json({ ok: false }, { headers: { "cache-control": "no-store" } });
     }
     res = Response.json(body, { headers: { "cache-control": "public, max-age=600" } });
     ctx.waitUntil(cache.put(key, res.clone()));
+    ctx.waitUntil(cache.put(lastKey, Response.json(body, { headers: { "cache-control": "public, max-age=43200" } })));
   }
   const out = new Response(res.body, res);
   out.headers.set("cache-control", "public, max-age=300");

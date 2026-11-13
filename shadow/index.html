@@ -70,6 +70,8 @@
     var fog=ease((6000-w.vis)/5000), rain=clamp(Math.sqrt(Math.max(0,w.rain))/2.2);
     return {occl:occl,fog:fog,rain:rain,wind:w.wind,gust:w.gust,score:w.score};
   }
+  var seen={};
+  function put(s){return {setProperty:function(k,v){if(seen[k]!==v){seen[k]=v;s.setProperty(k,v)}}}}
   function light(pos,mn,k,s){
     var a=pos.alt, az=pos.az, o, r, sy, b, c, go, gc, gm, gx, direct=(1-.94*k.occl)*(1-.85*k.fog);
     var evening=az>180, sc=k.score==null?null:clamp(k.score/10);
@@ -94,7 +96,7 @@
       go=n*(.05+.2*ml)*(1-.7*k.occl); gc='#9DB3D6'; gm='screen'; gx=(mn.alt>0&&mn.az<180)?'0%':'100%';
     }
     s.setProperty('--sh-o',o.toFixed(3)); s.setProperty('--sh-r',r.toFixed(2)+'deg');
-    s.setProperty('--sh-sy',sy.toFixed(3)); s.setProperty('--sh-b',b.toFixed(1)+'px'); s.setProperty('--sh-c',c);
+    s.setProperty('--sh-sy',sy.toFixed(3)); s.setProperty('--sh-b',Math.round(b)+'px'); s.setProperty('--sh-c',c);
     s.setProperty('--gl-o',go.toFixed(3)); s.setProperty('--gl-c',gc); s.setProperty('--gl-m',gm); s.setProperty('--gl-x',gx);
     /* Link chips cast a short shadow away from the sun: long and sideways when it is low, short and soft at noon, flat under cloud. */
     var ix, iy, ib, ia, ic, hi;
@@ -112,7 +114,8 @@
   function air(k,dark,s){
     /* Wind sets how far and how fast the fronds move. Stepped, so the animation only restarts when the wind really changes. */
     var step=Math.round(Math.min(30,k.wind+.35*Math.max(0,k.gust-k.wind))/3);
-    if(step!==lastWind){lastWind=step;
+    /* Not while a day is playing: changing the sway speed restarts the animation, and the fronds would jump. */
+    if(step!==lastWind&&!window.__fast){lastWind=step;
       s.setProperty('--sw',(.35+step*.3).toFixed(2)); s.setProperty('--sw-d',Math.max(3.5,13-step*1.05).toFixed(1)+'s');}
     s.setProperty('--fog-o',(k.fog*(dark?.16:.5)).toFixed(3)); s.setProperty('--fog-c',dark?'#8E9BB0':'#F1F1EE');
     s.setProperty('--rain-o',(k.rain?(dark?.55:.38)*(.5+.5*k.rain):0).toFixed(3));
@@ -120,7 +123,7 @@
   }
   function apply(t,w){
     w=w||window.__w||CLEAR;
-    var pos=position(t), mn=moon(t), a=pos.alt, p=palette(a), bg=p.c[0], ink=p.c[1], k=sky(w), s=document.documentElement.style;
+    var pos=position(t), mn=moon(t), a=pos.alt, p=palette(a), bg=p.c[0], ink=p.c[1], k=sky(w), root=document.documentElement.style, s=put(root);
     light(pos,mn,k,s); air(k,p.dark,s);
     if(!p.dark){
       /* Cloud flattens and cools the paper; fog lifts it; a vivid forecast warms the last light. */
@@ -133,8 +136,8 @@
     s.setProperty('--bg',bg); s.setProperty('--ink',ink);
     s.setProperty('--mute',mix(bg,ink,p.dark?.6:.7)); s.setProperty('--rule',mix(bg,ink,p.dark?.18:.13));
     s.setProperty('--chip',p.dark?mix(bg,ink,.07):mix(bg,'#FFFFFF',.55));
-    s.colorScheme=p.dark?'dark':'light';
-    var m=document.querySelector('meta[name=theme-color]'); if(m) m.content=bg;
+    if(seen.cs!==p.dark){seen.cs=p.dark;root.colorScheme=p.dark?'dark':'light'}
+    if(!window.__fast){var m=document.querySelector('meta[name=theme-color]'); if(m&&m.content!==bg) m.content=bg}
     return {alt:a,az:pos.az,moon:mn,sky:k,dark:p.dark};
   }
   /* Start from the last sky this browser saw, so the first paint is already weathered. */
@@ -231,6 +234,8 @@ main{position:relative;z-index:1}
   footer{flex-direction:column;align-items:flex-start;gap:12px}
   .fronds{transform:translate(34%,-16%) scale(.95)}
 }
+/* While the sun is being dragged or a day is playing, nothing eases: every frame is already the right one */
+html.fast *{transition:none!important}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}.play{display:none}.sway{animation:none}}
 </style>
 </head>
@@ -377,16 +382,19 @@ main{position:relative;z-index:1}
   var RAMP=[[7.5,'#FF6A45,#FF9A62,#D9799B,#6C6FA3'],[5.5,'#FF8E5A,#FFB57E,#E2A0A8,#8C93B5'],[3.5,'#F4B98A,#F3D2B0,#D9CFD2,#A9B4C6'],[2,'#D8C2A8,#D5CEC6,#BFC3C8,#A3ABB5'],[-1,'#B7BABD,#AEB2B6,#9EA3A9,#8E949B']];
   function forecast(t){
     var ss=override&&override.sunset?override.sunset:nextSunset(t);
-    if(!ss){tonight.hidden=true;return}
+    if(!ss){if(!tonight.hidden)tonight.hidden=true;lastFc='';return}
     if(t>ss.t+40*6e4) ss={t:ss.t+DAY,score:ss.score,label:ss.label,why:ss.why};
     var ramp=RAMP.filter(function(x){return ss.score>=x[0]})[0][1];
     var when=ss.t<startOfDay(t)+DAY?'Tonight\u2019s sunset':'Tomorrow’s sunset';
-    tonight.hidden=false;
-    tonight.innerHTML='<i class="swatch" style="background:linear-gradient(90deg,'+ramp+')"></i>'+when+', <span class="tnum">'+hm(ss.t)+'</span>: '+ss.label+'. '+ss.why+'.';
+    var fc='<i class="swatch" style="background:linear-gradient(90deg,'+ramp+')"></i>'+when+', <span class="tnum">'+hm(ss.t)+'</span>: '+ss.label+'. '+ss.why+'.';
+    if(fc!==lastFc){lastFc=fc;tonight.hidden=false;tonight.innerHTML=fc}
   }
+  var lastTxt='', lastFc='';
+  function fast(on){window.__fast=on;document.documentElement.classList.toggle('fast',!!on)}
   function render(t){
     var w=weatherAt(t), r=sun.apply(t,w||undefined);
-    place(t); line.innerHTML=words(t,r,w); forecast(t); rain.set(r.sky.rain);
+    place(t); var tw=window.__fast?Math.round(t/6e5)*6e5:t, txt=words(tw,r,w); if(txt!==lastTxt){lastTxt=txt;line.innerHTML=txt}
+    forecast(t); rain.set(r.sky.rain);
     return r;
   }
 
@@ -446,13 +454,13 @@ main{position:relative;z-index:1}
   }
 
   btn.addEventListener('click',function(){
-    if(playing){cancelAnimationFrame(raf);playing=0;btn.textContent='Play a day';now();return}
-    playing=1;btn.textContent='Stop';
-    var base=frozen||Date.now(), t0=performance.now(), dur=12000;
+    if(playing){cancelAnimationFrame(raf);playing=0;fast(0);btn.textContent='Play a day';now();return}
+    playing=1;fast(1);btn.textContent='Stop';var lastF=0;
+    var base=frozen||Date.now(), t0=performance.now(), dur=14000;
     (function step(ts){
-      var k=Math.min(1,(ts-t0)/dur), e=.5-Math.cos(Math.PI*k)/2;
-      render(base+e*DAY);
-      if(k<1&&playing) raf=requestAnimationFrame(step); else {playing=0;btn.textContent='Play a day';now()}
+      var k=Math.min(1,(ts-t0)/dur);
+      if(ts-lastF>=30||k>=1){lastF=ts;render(base+k*DAY)}
+      if(k<1&&playing) raf=requestAnimationFrame(step); else {playing=0;fast(0);btn.textContent='Play a day';now()}
     })(t0);
   });
 
@@ -461,13 +469,13 @@ main{position:relative;z-index:1}
   function at(e){var b=svg.getBoundingClientRect();return day0+Math.max(0,Math.min(.9999,(e.clientX-b.left)/b.width))*DAY}
   svg.addEventListener('pointerdown',function(e){
     if(playing){cancelAnimationFrame(raf);playing=0;btn.textContent='Play a day'}
-    scrubbing=1;held=at(e);svg.setPointerCapture(e.pointerId);svg.classList.add('held');render(held);e.preventDefault()});
+    scrubbing=1;fast(1);held=at(e);svg.setPointerCapture(e.pointerId);svg.classList.add('held');render(held);e.preventDefault()});
   svg.addEventListener('pointermove',function(e){if(scrubbing&&svg.hasPointerCapture(e.pointerId)){held=at(e);render(held)}});
   function release(){
     if(!scrubbing) return; svg.classList.remove('held');
     var from=held, to=frozen||Date.now(), t0=performance.now(), dur=reduce?0:700;
     (function back(ts){var k=dur?Math.min(1,(ts-t0)/dur):1, e=1-Math.pow(1-k,3);render(from+(to-from)*e);
-      if(k<1) requestAnimationFrame(back); else {scrubbing=0;now()}})(t0);
+      if(k<1) requestAnimationFrame(back); else {scrubbing=0;fast(0);now()}})(t0);
   }
   svg.addEventListener('pointerup',release); svg.addEventListener('pointercancel',release);
   svg.addEventListener('keydown',function(e){
@@ -505,7 +513,7 @@ main{position:relative;z-index:1}
 
   /* Every time the page relights, work out where a shadow should fall and how strong it is. */
   function relight(r){
-    var cs=getComputedStyle(document.documentElement), o=parseFloat(cs.getPropertyValue('--sh-o'))||0;
+    var cs=document.documentElement.style, o=parseFloat(cs.getPropertyValue('--sh-o'))||0;
     var c=(cs.getPropertyValue('--sh-c')||'#3A4458').trim(); if(/^#[0-9a-f]{6}$/i.test(c)) S.rgb=[1,3,5].map(function(i){return parseInt(c.slice(i,i+2),16)});
     S.wind=parseFloat(cs.getPropertyValue('--sw'))||1;
     var src=r.alt>-2?{alt:r.alt,az:r.az}:(r.moon&&r.moon.alt>0?{alt:r.moon.alt,az:r.moon.az}:null);
