@@ -496,10 +496,9 @@ html.fast *{transition:none!important}
           var py=d.y, pxx=d.x; d.y+=d.v*dt; d.x+=d.vx*dt*Math.min(1,d.v/36);
           var n=Math.max(1,Math.ceil((d.y-py)/(d.r*.4)));
           for(j=1;j<=n;j++){var f=j/n, X=pxx+(d.x-pxx)*f, Y=py+(d.y-py)*f;
-            blob(tx,X,Y-d.r*.55,d.r*(.36+.3*sn(Y*.09+d.seed)),1,.92);                 /* an uneven film: thin stretches dry first and leave beads */
+            blob(tx,X,Y-d.r*.55,d.r*(.47+.08*sn(Y*.05+d.seed)),1,.92);                 /* a thin film that narrows and dries behind the drop */
             mx.globalCompositeOperation='destination-out';mx.globalAlpha=1;mx.beginPath();mx.arc(X,Y,d.r*1.25,0,6.283);mx.fill();mx.globalCompositeOperation='source-over'}
           d.acc+=d.y-py; if(k>0) d.tr=Math.min(16,d.tr+(d.y-py)*.0016);              /* swallows the mist in its path */
-          if(d.acc>d.next){d.acc=0;d.next=10+Math.random()*26+d.r; var br=d.r*(.18+.18*Math.random()); blob(mx,d.x+(Math.random()-.5)*d.r*.4,d.y-d.r*1.6,br); d.tr=Math.sqrt(Math.max(.5,d.tr*d.tr-br*br*.8))}
           for(j=drops.length;j-->0;){o=drops[j]; if(o===d||o.dead||o.into) continue;
             var ex=o.x-d.x, ey=o.y-d.y, rr=(o.r+d.r)*1.04; if(ex*ex+ey*ey<rr*rr) join(d,o)}
         }
