@@ -450,47 +450,67 @@ html.fast *{transition:none!important}
       cv.width=Math.ceil(W*dpr);cv.height=Math.ceil(H*dpr);if(gl)gl.viewport(0,0,cv.width,cv.height);
       mx.setTransform(S,0,0,S,0,0);tx.setTransform(S,0,0,S,0,0);
     }
+    function hsh(i){var x=Math.sin(i*127.1)*43758.5453;return x-Math.floor(x)}
+    function sn(x){var i=Math.floor(x),f=x-i,u=f*f*(3-2*f);return hsh(i)*(1-u)+hsh(i+1)*u}      /* smooth noise, 0..1 */
+    function mk(x,y,r,mv){return {x:x,y:y,r:.8,tr:r,v:0,vx:0,mv:mv||0,ph:0,seed:Math.random()*900,next:8,acc:0,age:0,into:null,pull:0}}
+    function join(a,b){ /* the smaller drop is drawn into the larger; if it was running, its momentum carries over */
+      var big=a.tr>=b.tr?a:b, sm=big===a?b:a; if(sm.into||big.into) return;
+      sm.into=big; sm.pull=0; if(sm.mv||big.mv){big.mv=1; big.v=Math.max(big.v,sm.v*.85)} sm.mv=0;
+    }
     function land(x,y,r){
-      drops.push({x:x,y:y,r:.8,tr:r,v:0,vx:0,mv:0,ph:Math.random()*9,next:6,acc:0,age:0});
-      for(var i=0,n=2+Math.random()*4|0;i<n;i++){var a=Math.random()*6.283,q=r*(1.4+Math.random()*2.2);blob(mx,x+Math.cos(a)*q,y+Math.sin(a)*q*.8,.7+Math.random()*1.1)}
+      var d=mk(x,y,r), i, o; drops.push(d);
+      for(i=0,n=2+Math.random()*4|0;i<n;i++){var a=Math.random()*6.283,q=r*(1.4+Math.random()*2.2);blob(mx,x+Math.cos(a)*q,y+Math.sin(a)*q*.8,.7+Math.random()*1.1)}
+      for(i=drops.length-1;i-->0;){o=drops[i]; var dx=o.x-x, dy=o.y-y, rr=(o.tr+r)*.92; if(!o.into&&dx*dx+dy*dy<rr*rr){join(d,o);break}}
     }
     function step(dt){
-      var area=W*H/1e6, i, j, d, o;
+      var area=W*H/1e6, i, j, d, o, q;
       if(k>0){
-        for(i=Math.random()<(area*(24+190*k)*dt)%1?Math.ceil(area*(24+190*k)*dt):Math.floor(area*(24+190*k)*dt);i-->0;) blob(mx,Math.random()*W,Math.random()*H,.8+Math.pow(Math.random(),2)*1.9);
+        q=area*(24+190*k)*dt; for(i=Math.floor(q)+(Math.random()<q%1?1:0);i-->0;) blob(mx,Math.random()*W,Math.random()*H,.8+Math.pow(Math.random(),2)*1.9);
         if(Math.random()<area*(1.6+11*k)*dt) land(Math.random()*W,Math.random()*H*.96,2.6+Math.pow(Math.random(),2.4)*(6+5*k));
+        if(Math.random()<area*(.2+1.1*k)*dt) drops.push(mk(Math.random()*W,-10,4.6+Math.random()*3.6,1));     /* water gathering at the top of the frame lets go */
       }
       /* mist dries slowly, tracks dry fast: as a track thins it narrows to a thread, then breaks into beads */
       mx.save();mx.setTransform(1,0,0,1,0,0);mx.globalCompositeOperation='destination-out';mx.globalAlpha=Math.min(1,dt*(k>0?.05:.5));mx.fillRect(0,0,mist.width,mist.height);mx.restore();
-      tx.save();tx.setTransform(1,0,0,1,0,0);tx.globalCompositeOperation='destination-out';tx.globalAlpha=Math.min(1,dt*1.15);tx.fillRect(0,0,trail.width,trail.height);tx.restore();
+      tx.save();tx.setTransform(1,0,0,1,0,0);tx.globalCompositeOperation='destination-out';tx.globalAlpha=Math.min(1,dt*1.05);tx.fillRect(0,0,trail.width,trail.height);tx.restore();
       mx.globalCompositeOperation='source-over';
       for(i=drops.length;i-->0;){
-        d=drops[i]; d.age+=dt; d.r+=(d.tr-d.r)*Math.min(1,dt*16);
-        if(!d.mv){d.tr-=dt*.035; if(d.tr>3.9&&Math.random()<dt*(d.tr-3.7)*.5) d.mv=1}
-        if(d.mv){
-          /* stick-slip: contact-line friction holds the drop, weight breaks it loose, so it runs in surges */
-          d.ph+=dt*(1.6+d.r*.12);
-          var grip=.5+.5*Math.sin(d.ph*2.1)*Math.sin(d.ph*.83+1.3), vt=Math.max(0,d.r-2.6)*62*(.12+.88*grip*grip);
-          d.v+=(vt-d.v)*Math.min(1,dt*(vt>d.v?5:2.2));
-          d.vx+=((Math.random()-.5)*46+wind*5)*dt; d.vx*=1-Math.min(1,dt*2.4);
-          var py=d.y, pxx=d.x; d.y+=d.v*dt; d.x+=d.vx*dt*Math.min(1,d.v/30);
-          var n=Math.max(1,Math.ceil((d.y-py)/(d.r*.5)));
-          for(j=1;j<=n;j++){var f=j/n, X=pxx+(d.x-pxx)*f, Y=py+(d.y-py)*f; blob(tx,X,Y-d.r*.5,d.r*.56,1,.9);
+        d=drops[i]; d.age+=dt; d.r+=(d.tr-d.r)*(1-Math.exp(-dt*11));
+        if(d.into){
+          /* coalescence: surface tension snaps the two together. Both are still drawn, so the field bridges between them as they close. */
+          o=d.into; if(o.dead){d.into=null} else {
+            d.pull+=dt; var dx=o.x-d.x, dy=o.y-d.y, pl=1-Math.exp(-dt*(7+d.pull*70)), a=d.tr*d.tr, t=Math.min(a,a*(1-Math.exp(-dt*(5+d.pull*40)))+.02);
+            d.x+=dx*pl; d.y+=dy*pl; o.x-=dx*pl*Math.min(.5,a/(o.tr*o.tr+a)); o.y-=dy*pl*Math.min(.5,a/(o.tr*o.tr+a));
+            o.tr=Math.min(16,Math.sqrt(o.tr*o.tr+t)); d.tr=Math.sqrt(Math.max(0,a-t));
+            if(d.tr<.8||dx*dx+dy*dy<1){o.tr=Math.min(16,Math.sqrt(o.tr*o.tr+d.tr*d.tr)); d.dead=1}
+          }
+        }else if(!d.mv){
+          d.tr-=dt*.035;
+          if(d.tr>3.2) d.y+=(d.tr-3.2)*.5*dt;                                  /* a heavy bead sags before it lets go */
+          if(d.tr>3.9&&Math.random()<dt*(d.tr-3.7)*.5) d.mv=1;
+        }else{
+          /* stick-slip: friction at the contact line holds the drop until its weight wins, so it runs in slow surges and pauses */
+          d.ph+=dt;
+          var g=sn(d.ph*.8+d.seed), hold=g<.2?0:(g-.2)/.8, vt=Math.max(0,d.r-2.4)*74*hold*hold+(d.r>8?(d.r-8)*30:0);
+          d.v+=(vt-d.v)*(1-Math.exp(-dt*(vt>d.v?3:4.2)));
+          var vxt=(sn(d.ph*.55+d.seed*3.1)-.5)*30+wind*7; d.vx+=(vxt-d.vx)*(1-Math.exp(-dt*2.2));
+          var py=d.y, pxx=d.x; d.y+=d.v*dt; d.x+=d.vx*dt*Math.min(1,d.v/36);
+          var n=Math.max(1,Math.ceil((d.y-py)/(d.r*.4)));
+          for(j=1;j<=n;j++){var f=j/n, X=pxx+(d.x-pxx)*f, Y=py+(d.y-py)*f;
+            blob(tx,X,Y-d.r*.55,d.r*(.36+.3*sn(Y*.09+d.seed)),1,.92);                 /* an uneven film: thin stretches dry first and leave beads */
             mx.globalCompositeOperation='destination-out';mx.globalAlpha=1;mx.beginPath();mx.arc(X,Y,d.r*1.25,0,6.283);mx.fill();mx.globalCompositeOperation='source-over'}
-          d.acc+=d.y-py; d.tr+=(d.y-py)*.0016*(k>0?1:0);                       /* swallows the mist in its path */
-          if(d.acc>d.next){d.acc=0;d.next=5+Math.random()*16+d.r; var br=d.r*(.2+.2*Math.random()); blob(mx,d.x+(Math.random()-.5)*d.r*.5,d.y-d.r*1.5,br); d.tr=Math.sqrt(Math.max(.5,d.tr*d.tr-br*br*.8))}
-          for(j=drops.length;j-->0;){o=drops[j]; if(o===d||o.dead) continue;
-            var dx=o.x-d.x, dy=o.y-d.y, rr=(o.r+d.r)*.82; if(dx*dx+dy*dy<rr*rr){
-              var big=d.r>=o.r?d:o, sm=big===d?o:d; big.tr=Math.min(15,Math.sqrt(big.tr*big.tr+sm.r*sm.r)); big.mv=1; big.v=Math.max(big.v,sm.v)*.9+18; big.x+=(sm.x-big.x)*.18; sm.dead=1}}
+          d.acc+=d.y-py; if(k>0) d.tr=Math.min(16,d.tr+(d.y-py)*.0016);              /* swallows the mist in its path */
+          if(d.acc>d.next){d.acc=0;d.next=10+Math.random()*26+d.r; var br=d.r*(.18+.18*Math.random()); blob(mx,d.x+(Math.random()-.5)*d.r*.4,d.y-d.r*1.6,br); d.tr=Math.sqrt(Math.max(.5,d.tr*d.tr-br*br*.8))}
+          for(j=drops.length;j-->0;){o=drops[j]; if(o===d||o.dead||o.into) continue;
+            var ex=o.x-d.x, ey=o.y-d.y, rr=(o.r+d.r)*1.04; if(ex*ex+ey*ey<rr*rr) join(d,o)}
         }
-        if(d.dead||d.tr<.9||d.y-d.r>H+30) drops.splice(i,1);
+        if(d.dead||(d.tr<.9&&!d.into)||d.y-d.r>H+30){d.dead=1;drops.splice(i,1)}
       }
       if(drops.length>420) drops.splice(0,drops.length-420);
     }
     function draw(){
       hx.setTransform(1,0,0,1,0,0);hx.globalCompositeOperation='source-over';hx.globalAlpha=1;hx.clearRect(0,0,hm.width,hm.height);
       hx.drawImage(mist,0,0);hx.globalCompositeOperation='lighter';hx.drawImage(trail,0,0);hx.setTransform(S,0,0,S,0,0);
-      for(var i=0;i<drops.length;i++){var d=drops[i], st=1+Math.min(.8,d.v/260);blob(hx,d.x,d.y-(st-1)*d.r*.7,d.r,st)}
+      for(var i=0;i<drops.length;i++){var d=drops[i], st=1+Math.min(.85,d.v/300);blob(hx,d.x,d.y-(st-1)*d.r*.7,d.r,st)}
       hx.globalAlpha=1;
       if(!gl) return;
       var dark=document.documentElement.style.colorScheme==='dark';
