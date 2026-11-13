@@ -223,7 +223,9 @@ footer button:hover{opacity:.62}
 .sway.b{animation-duration:calc(var(--sw-d,11s)*.64);animation-delay:-3s;opacity:.8}
 .sway.b .cast{filter:blur(calc(var(--sh-b,4px)*1.8))}
 .haze{position:absolute;inset:0;background:linear-gradient(180deg,var(--fog-c,#F1F1EE),var(--fog-c,#F1F1EE) 35%,transparent 130%);opacity:var(--fog-o,0);transition:opacity 1.2s ease}
-canvas.rain{position:absolute;inset:0;width:100%;height:100%;opacity:var(--rain-o,0);mix-blend-mode:var(--rain-m,multiply);filter:blur(1.1px);transition:opacity 1.2s ease}
+canvas.rain{display:none}
+/* Rain sits on the glass, in front of everything */
+canvas.glass{position:fixed;inset:0;width:100%;height:100%;z-index:4;pointer-events:none;opacity:0;transition:opacity 2s ease}
 @keyframes sway{0%{transform:rotate(calc(-.9deg*var(--sw,1))) translate3d(0,0,0)}55%{transform:rotate(calc(.5deg*var(--sw,1))) translate3d(-.4%,.3%,0)}100%{transform:rotate(calc(1.1deg*var(--sw,1))) translate3d(.2%,-.2%,0)}}
 main{position:relative;z-index:1}
 
@@ -394,44 +396,125 @@ html.fast *{transition:none!important}
   function render(t){
     var w=weatherAt(t), r=sun.apply(t,w||undefined);
     place(t); var tw=window.__fast?Math.round(t/6e5)*6e5:t, txt=words(tw,r,w); if(txt!==lastTxt){lastTxt=txt;line.innerHTML=txt}
-    forecast(t); rain.set(r.sky.rain);
+    forecast(t); rain.set(r.sky.rain,r.sky.wind>12?1:r.sky.wind/12);
     return r;
   }
 
   /* ---- rain, drawn only as shadow: drops on a window pane, cast across the page ---- */
   var rain=(function(){
-    var cv=document.querySelector('canvas.rain'), cx=cv.getContext('2d'), k=0, on=0, beads=[], run=[], w=0, h=0, last=0, col='#3A4458';
-    function size(){w=cv.width=Math.ceil(innerWidth/1.5);h=cv.height=Math.ceil(innerHeight/1.5)}
-    function bead(x,y,r,life){beads.push({x:x,y:y,r:r,life:life,age:0})}
-    function seed(){beads=[];run=[];for(var i=0;i<260*k+60;i++)bead(Math.random()*w,Math.random()*h,.4+Math.pow(Math.random(),2.2)*2.1,4+Math.random()*14)}
+    /* Rain on glass. The screen is treated as a vertical window pane: drops land, bead up, swallow the mist around them,
+       grow heavy, then run down in fits and starts leaving a wet track that dries behind them. Water is kept as a height
+       field (three small canvases: fine mist, drying tracks, live drops); a shader turns that field into lit, lens-like water. */
+    var cv=document.createElement('canvas'); cv.className='glass'; cv.setAttribute('aria-hidden','true'); document.body.appendChild(cv);
+    var hm=document.createElement('canvas'), hx=hm.getContext('2d'), mist=document.createElement('canvas'), mx=mist.getContext('2d'),
+        trail=document.createElement('canvas'), tx=trail.getContext('2d');
+    var k=0, on=0, W=0, H=0, S=1, drops=[], last=0, gl=null, U={}, tex=null, idle=0, wind=0;
+    var sp=document.createElement('canvas'); sp.width=sp.height=64;
+    (function(){var c=sp.getContext('2d'), g=c.createRadialGradient(32,32,0,32,32,32);
+      g.addColorStop(0,'rgba(255,255,255,1)');g.addColorStop(.42,'rgba(255,255,255,.74)');g.addColorStop(1,'rgba(255,255,255,0)');c.fillStyle=g;c.fillRect(0,0,64,64)})();
+    var K=1/.6;                                             /* sprite radius for a visible radius of 1 */
+    function blob(c,x,y,r,sy,al){var R=r*K;c.globalAlpha=al==null?1:al;c.drawImage(sp,x-R,y-R*(sy||1),2*R,2*R*(sy||1))}
+
+    var VS='attribute vec2 p;varying vec2 v;void main(){v=vec2(p.x*.5+.5,.5-p.y*.5);gl_Position=vec4(p,0.,1.);}';
+    var FS='precision mediump float;varying vec2 v;uniform sampler2D t;uniform vec2 px;uniform vec3 sc;uniform float dk;'+
+      'void main(){float T=.5;vec2 L=vec2(-.55,-.8);'+
+      'float h=texture2D(t,v).a,hl=texture2D(t,v-vec2(px.x*1.6,0.)).a,hr=texture2D(t,v+vec2(px.x*1.6,0.)).a,hu=texture2D(t,v-vec2(0.,px.y*1.6)).a,hd=texture2D(t,v+vec2(0.,px.y*1.6)).a;'+
+      'float a=smoothstep(T-.07,T+.07,h);vec2 g=vec2(hr-hl,hd-hu);float d=clamp((h-T)/(1.-T),0.,1.);'+
+      'vec3 n=normalize(vec3(-g*2.4,.3+d*.9));float rim=pow(1.-d,2.6);'+
+      /* a drop is a lens: its top edge shows the dark ground upside down, its lower belly gathers the bright sky */
+      'float top=clamp(g.y*3.2,-1.,1.);'+
+      'float shade=a*(.07+.42*rim+.4*max(top,0.)*(1.-.5*d));'+
+      'float glow=a*.62*max(-top,0.)*(1.-.35*d);'+
+      'float spec=a*pow(max(dot(n,normalize(vec3(L,.5))),0.),26.);'+
+      'float la=clamp(glow+spec*1.25,0.,1.)*mix(1.,.5,dk);'+
+      'float hs=texture2D(t,v+L*px*8.).a;float sh=smoothstep(.38,.62,hs)*(1.-a)*.2;'+           /* the drop\'s own shadow on the page behind the glass */
+      'float da=clamp(shade*(1.-la)*mix(1.,.45,dk)+sh,0.,1.);'+
+      'gl_FragColor=vec4(sc*da*.0+vec3(la)+sc*0.,0.)+vec4(sc*da,da)+vec4(0.,0.,0.,la);}';
+    function initGL(){
+      try{gl=cv.getContext('webgl',{premultipliedAlpha:true,alpha:true,antialias:false})}catch(e){gl=null}
+      if(!gl) return;
+      function sh(t,s){var o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);return o}
+      var pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,VS));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,FS));gl.linkProgram(pr);
+      if(!gl.getProgramParameter(pr,gl.LINK_STATUS)){gl=null;return}
+      gl.useProgram(pr);var b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+      var l=gl.getAttribLocation(pr,'p');gl.enableVertexAttribArray(l);gl.vertexAttribPointer(l,2,gl.FLOAT,false,0,0);
+      ['px','sc','dk'].forEach(function(n){U[n]=gl.getUniformLocation(pr,n)});
+      tex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,tex);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);
+    }
+    function size(){
+      W=innerWidth;H=innerHeight;var dpr=Math.min(devicePixelRatio||1,2);S=Math.min(1.5,dpr);
+      [hm,mist,trail].forEach(function(c){c.width=Math.ceil(W*S);c.height=Math.ceil(H*S)});
+      cv.width=Math.ceil(W*dpr);cv.height=Math.ceil(H*dpr);if(gl)gl.viewport(0,0,cv.width,cv.height);
+      mx.setTransform(S,0,0,S,0,0);tx.setTransform(S,0,0,S,0,0);
+    }
+    function land(x,y,r){
+      drops.push({x:x,y:y,r:.8,tr:r,v:0,vx:0,mv:0,ph:Math.random()*9,next:6,acc:0,age:0});
+      for(var i=0,n=2+Math.random()*4|0;i<n;i++){var a=Math.random()*6.283,q=r*(1.4+Math.random()*2.2);blob(mx,x+Math.cos(a)*q,y+Math.sin(a)*q*.8,.7+Math.random()*1.1)}
+    }
+    function step(dt){
+      var area=W*H/1e6, i, j, d, o;
+      if(k>0){
+        for(i=Math.random()<(area*(24+190*k)*dt)%1?Math.ceil(area*(24+190*k)*dt):Math.floor(area*(24+190*k)*dt);i-->0;) blob(mx,Math.random()*W,Math.random()*H,.8+Math.pow(Math.random(),2)*1.9);
+        if(Math.random()<area*(1.6+11*k)*dt) land(Math.random()*W,Math.random()*H*.96,2.6+Math.pow(Math.random(),2.4)*(6+5*k));
+      }
+      /* mist dries slowly, tracks dry fast: as a track thins it narrows to a thread, then breaks into beads */
+      mx.save();mx.setTransform(1,0,0,1,0,0);mx.globalCompositeOperation='destination-out';mx.globalAlpha=Math.min(1,dt*(k>0?.05:.5));mx.fillRect(0,0,mist.width,mist.height);mx.restore();
+      tx.save();tx.setTransform(1,0,0,1,0,0);tx.globalCompositeOperation='destination-out';tx.globalAlpha=Math.min(1,dt*1.15);tx.fillRect(0,0,trail.width,trail.height);tx.restore();
+      mx.globalCompositeOperation='source-over';
+      for(i=drops.length;i-->0;){
+        d=drops[i]; d.age+=dt; d.r+=(d.tr-d.r)*Math.min(1,dt*16);
+        if(!d.mv){d.tr-=dt*.035; if(d.tr>3.9&&Math.random()<dt*(d.tr-3.7)*.5) d.mv=1}
+        if(d.mv){
+          /* stick-slip: contact-line friction holds the drop, weight breaks it loose, so it runs in surges */
+          d.ph+=dt*(1.6+d.r*.12);
+          var grip=.5+.5*Math.sin(d.ph*2.1)*Math.sin(d.ph*.83+1.3), vt=Math.max(0,d.r-2.6)*62*(.12+.88*grip*grip);
+          d.v+=(vt-d.v)*Math.min(1,dt*(vt>d.v?5:2.2));
+          d.vx+=((Math.random()-.5)*46+wind*5)*dt; d.vx*=1-Math.min(1,dt*2.4);
+          var py=d.y, pxx=d.x; d.y+=d.v*dt; d.x+=d.vx*dt*Math.min(1,d.v/30);
+          var n=Math.max(1,Math.ceil((d.y-py)/(d.r*.5)));
+          for(j=1;j<=n;j++){var f=j/n, X=pxx+(d.x-pxx)*f, Y=py+(d.y-py)*f; blob(tx,X,Y-d.r*.5,d.r*.56,1,.9);
+            mx.globalCompositeOperation='destination-out';mx.globalAlpha=1;mx.beginPath();mx.arc(X,Y,d.r*1.25,0,6.283);mx.fill();mx.globalCompositeOperation='source-over'}
+          d.acc+=d.y-py; d.tr+=(d.y-py)*.0016*(k>0?1:0);                       /* swallows the mist in its path */
+          if(d.acc>d.next){d.acc=0;d.next=5+Math.random()*16+d.r; var br=d.r*(.2+.2*Math.random()); blob(mx,d.x+(Math.random()-.5)*d.r*.5,d.y-d.r*1.5,br); d.tr=Math.sqrt(Math.max(.5,d.tr*d.tr-br*br*.8))}
+          for(j=drops.length;j-->0;){o=drops[j]; if(o===d||o.dead) continue;
+            var dx=o.x-d.x, dy=o.y-d.y, rr=(o.r+d.r)*.82; if(dx*dx+dy*dy<rr*rr){
+              var big=d.r>=o.r?d:o, sm=big===d?o:d; big.tr=Math.min(15,Math.sqrt(big.tr*big.tr+sm.r*sm.r)); big.mv=1; big.v=Math.max(big.v,sm.v)*.9+18; big.x+=(sm.x-big.x)*.18; sm.dead=1}}
+        }
+        if(d.dead||d.tr<.9||d.y-d.r>H+30) drops.splice(i,1);
+      }
+      if(drops.length>420) drops.splice(0,drops.length-420);
+    }
+    function draw(){
+      hx.setTransform(1,0,0,1,0,0);hx.globalCompositeOperation='source-over';hx.globalAlpha=1;hx.clearRect(0,0,hm.width,hm.height);
+      hx.drawImage(mist,0,0);hx.globalCompositeOperation='lighter';hx.drawImage(trail,0,0);hx.setTransform(S,0,0,S,0,0);
+      for(var i=0;i<drops.length;i++){var d=drops[i], st=1+Math.min(.8,d.v/260);blob(hx,d.x,d.y-(st-1)*d.r*.7,d.r,st)}
+      hx.globalAlpha=1;
+      if(!gl) return;
+      var dark=document.documentElement.style.colorScheme==='dark';
+      gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,hm);
+      gl.uniform2f(U.px,1/hm.width,1/hm.height);gl.uniform1f(U.dk,dark?1:0);
+      if(dark)gl.uniform3f(U.sc,0,0,.02);else gl.uniform3f(U.sc,.17,.2,.27);
+      gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);gl.drawArrays(gl.TRIANGLES,0,3);
+    }
     function frame(ts){
       if(!on) return;
-      var dt=Math.min(.05,(ts-last)/1000||.016); last=ts;
-      if(Math.random()<dt*(8+44*k)) bead(Math.random()*w,Math.random()*h,.4+Math.pow(Math.random(),2.2)*2.2,5+Math.random()*12);
-      if(Math.random()<dt*(.5+3.2*k)) run.push({x:Math.random()*w,y:-10,r:1.5+Math.random()*1.7,v:20+Math.random()*40,ph:Math.random()*6,tr:0});
-      cx.clearRect(0,0,w,h); cx.fillStyle=col;
-      beads=beads.filter(function(b){b.age+=dt;return b.age<b.life});
-      beads.forEach(function(b){var f=Math.min(1,b.age*3)*Math.min(1,(b.life-b.age)/2);cx.globalAlpha=.5*f;cx.beginPath();cx.arc(b.x,b.y,b.r,0,7);cx.fill()});
-      run=run.filter(function(p){
-        p.ph+=dt*2.2; p.v+=(Math.sin(p.ph*1.7)>.2?260:-120)*dt; p.v=Math.max(6,Math.min(520,p.v));   /* stick, then slip */
-        p.y+=p.v*dt; p.x+=Math.sin(p.ph)*10*dt; p.tr+=p.v*dt;
-        if(p.tr>9){p.tr=0;bead(p.x+(Math.random()-.5)*1.5,p.y-p.r*2,.5+Math.random()*.9,.8+Math.random()*1.6)}
-        var tail=Math.min(46,p.v*.16);
-        cx.globalAlpha=.62;cx.beginPath();cx.moveTo(p.x-p.r*.55,p.y);cx.quadraticCurveTo(p.x,p.y-tail*1.2,p.x,p.y-tail);
-        cx.quadraticCurveTo(p.x,p.y-tail*1.2,p.x+p.r*.55,p.y);cx.arc(p.x,p.y,p.r,0,Math.PI);cx.fill();
-        cx.beginPath();cx.arc(p.x,p.y,p.r,0,7);cx.fill();
-        return p.y<h+30;
-      });
+      var dt=Math.min(.05,(ts-last)/1000||.016); last=ts; step(dt); draw();
+      if(k===0&&(idle+=dt)>9){on=0;drops=[];return}
       requestAnimationFrame(frame);
     }
-    function start(){if(on||!k||document.hidden)return;on=1;size();if(!beads.length)seed();col=getComputedStyle(document.documentElement).getPropertyValue('--rain-c').trim()||col;
-      if(reduce){on=0;cx.clearRect(0,0,w,h);cx.fillStyle=col;beads.forEach(function(b){cx.globalAlpha=.45;cx.beginPath();cx.arc(b.x,b.y,b.r,0,7);cx.fill()});return}
-      last=performance.now();requestAnimationFrame(frame)}
-    function stop(){on=0}
-    addEventListener('resize',function(){if(k){size();seed()}});
-    document.addEventListener('visibilitychange',function(){document.hidden?stop():start()});
-    return {set:function(v){v=Math.round(v*20)/20;if(v===k)return;var was=k;k=v;if(!k){stop();setTimeout(function(){if(!k){cx.clearRect(0,0,w,h);beads=[];run=[]}},1500)}
-      else{col=getComputedStyle(document.documentElement).getPropertyValue('--rain-c').trim()||col;if(!was)seed();start()}}};
+    function start(){
+      if(on||document.hidden) return;
+      if(!W){initGL();if(!gl){cv.style.display='none';return}size()}
+      on=1;idle=0;
+      if(reduce){for(var i=0;i<240;i++)step(.05);draw();on=0;return}
+      last=performance.now();requestAnimationFrame(frame);
+    }
+    addEventListener('resize',function(){if(W){size();if(reduce&&k)start()}});
+    document.addEventListener('visibilitychange',function(){if(document.hidden)on=0;else if(k)start()});
+    return {set:function(v,w){v=Math.round(v*20)/20;wind=w||0;if(v===k)return;k=v;cv.style.opacity=k?1:0;if(k){idle=0;start()}}};
   })();
 
   var playing=0, scrubbing=0, raf;
