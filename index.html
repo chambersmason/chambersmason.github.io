@@ -25,9 +25,14 @@
 {"@context":"https://schema.org","@type":"Person","name":"Mason Chambers","email":"mailto:mason@masonchambers.com","url":"https://masonchambers.com","address":{"@type":"PostalAddress","addressLocality":"Los Angeles","addressRegion":"CA"},"sameAs":["https://github.com/chambersmason","https://www.linkedin.com/in/mason-chambers/","https://x.com/mason_compsci","https://www.mase-services.com"]}
 </script>
 <script>
-/* The page is lit by the real sky over Santa Monica: sun, moon, cloud, wind, fog and rain. Runs before first paint. */
+/* The page is lit by the real sky where the visitor is: sun, moon, cloud, wind, fog and rain. Runs before first paint.
+   The server puts the visitor's rough, city-level place in window.__place; without one it is Mason's sky over Santa Monica. */
 (function(){
-  var LAT=34.0195, LON=-118.4912, R=Math.PI/180;
+  var P=window.__place, HOME={lat:34.0195,lon:-118.4912,name:'Santa Monica',tz:'America/Los_Angeles',local:false};
+  if(!P||typeof P.lat!=='number'||typeof P.lon!=='number') P=HOME;
+  try{new Intl.DateTimeFormat('en-US',{timeZone:P.tz})}catch(e){P.tz=HOME.tz}
+  window.__place=P;
+  var LAT=P.lat, LON=P.lon, R=Math.PI/180;
   function eq(lon,lat,d){ /* ecliptic -> altitude/azimuth for the observer */
     var e=(23.439-3.6e-7*d)*R;
     var ra=Math.atan2(Math.sin(lon)*Math.cos(e)-Math.tan(lat)*Math.sin(e),Math.cos(lon));
@@ -141,7 +146,7 @@
     return {alt:a,az:pos.az,moon:mn,sky:k,dark:p.dark};
   }
   /* Start from the last sky this browser saw, so the first paint is already weathered. */
-  try{var c=JSON.parse(localStorage.getItem('mc_sky')||'null');if(c&&c.at&&Date.now()-c.at<36e5&&c.now)window.__w=c.now}catch(e){}
+  try{var c=JSON.parse(localStorage.getItem('mc_sky')||'null');if(c&&c.at&&Date.now()-c.at<36e5&&c.now&&c.place===LAT+','+LON)window.__w=c.now}catch(e){}
   window.__sun={altitude:altitude,position:position,moon:moon,apply:apply,CLEAR:CLEAR};
   apply(Date.now());
 })();
@@ -293,7 +298,7 @@ html.fast *{transition:none!important}
       <path id="arcB" fill="none" stroke="var(--mute)" stroke-width="1" stroke-linecap="round" stroke-dasharray="1.5 3" clip-path="url(#below)"/>
       <circle id="dot" r="3.5" fill="var(--ink)" stroke="var(--bg)" stroke-width="2"/>
     </svg>
-    <p><span id="sunline">The light on this page is the real sky over Santa Monica.</span><span id="tonight" hidden></span><span class="controls"><button class="play" type="button">Play a day</button><button class="rainbtn" type="button" aria-pressed="false">Make it rain</button></span></p>
+    <p><span id="sunline">The light on this page is the real sky.</span><span id="tonight" hidden></span><span class="controls"><button class="play" type="button">Play a day</button><button class="rainbtn" type="button" aria-pressed="false">Make it rain</button></span></p>
   </footer>
 </main>
 
@@ -335,7 +340,7 @@ html.fast *{transition:none!important}
   var svg=document.getElementById('skyarc'), arcA=document.getElementById('arcA'), arcB=document.getElementById('arcB'), dot=document.getElementById('dot');
   var line=document.getElementById('sunline'), tonight=document.getElementById('tonight'), btn=document.querySelector('.play');
   var reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
-  var tz='America/Los_Angeles';
+  var here=window.__place, tz=here.tz;
   var clock=new Intl.DateTimeFormat('en-US',{timeZone:tz,hour:'numeric',minute:'2-digit'});
   var parts=new Intl.DateTimeFormat('en-US',{timeZone:tz,year:'numeric',month:'numeric',day:'numeric',hour:'numeric',minute:'numeric',second:'numeric',hourCycle:'h23'});
   function hm(t){return clock.format(new Date(t)).replace(' AM',' am').replace(' PM',' pm')}
@@ -352,7 +357,7 @@ html.fast *{transition:none!important}
   arcA.setAttribute('d',d);arcB.setAttribute('d',d);
   function place(t){var p=pt(t);dot.setAttribute('cx',p[0].toFixed(2));dot.setAttribute('cy',p[1].toFixed(2))}
 
-  /* ---- the real sky: /sky.json is Santa Monica's current weather, today's hours and a sunset forecast ---- */
+  /* ---- the real sky: /sky.json?p=local is the weather where the visitor is (or Santa Monica), today's hours and a sunset forecast ---- */
   var data=null, override=null, frozen=null;
   function obj(a){return {low:a[0],mid:a[1],high:a[2],wind:a[3],gust:a[4],rain:a[5],vis:a[6]}}
   function nextSunset(t){
@@ -379,6 +384,7 @@ html.fast *{transition:none!important}
     var m=Math.round(w.wind), b=m<3?'still air':m<9?m+' mph breeze':m<18?m+' mph wind':'gusty, '+m+' mph';
     return c+', '+b+'. ';
   }
+  function esc(x){return String(x).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
   function words(t,r,w){
     var a=r.alt, n=Math.abs(Math.round(a)), up=sun.altitude(t+6e5)>a, s;
     if(a>=1.5) s='The sun is '+n+'° up and '+(up?'rising':'setting')+'.';
@@ -386,7 +392,7 @@ html.fast *{transition:none!important}
     else if(a>-6) s='The sun is just below the horizon.';
     else if(r.moon.alt>2) s='Moonlight from a '+(r.moon.lit>.97?'full':r.moon.lit<.03?'new':(r.moon.waxing?'waxing':'waning'))+' moon, '+Math.round(r.moon.lit*100)+'% lit.';
     else s='The moon is down.';
-    return 'Santa Monica, <span class="tnum">'+hm(t)+'</span>. '+(w?conditions(w):'')+s;
+    return (here.local?'Your sky in ':'')+esc(here.name)+', <span class="tnum">'+hm(t)+'</span>. '+(w?conditions(w):'')+s;
   }
   var RAMP=[[7.5,'#FF6A45,#FF9A62,#D9799B,#6C6FA3'],[5.5,'#FF8E5A,#FFB57E,#E2A0A8,#8C93B5'],[3.5,'#F4B98A,#F3D2B0,#D9CFD2,#A9B4C6'],[2,'#D8C2A8,#D5CEC6,#BFC3C8,#A3ABB5'],[-1,'#B7BABD,#AEB2B6,#9EA3A9,#8E949B']];
   function forecast(t){
@@ -400,7 +406,7 @@ html.fast *{transition:none!important}
   }
   var lastTxt='', lastFc='';
   function fast(on){window.__fast=on;document.documentElement.classList.toggle('fast',!!on)}
-  /* Make it rain: the visitor can ask for rain whatever Santa Monica is doing. Light cloud comes with it, so the palms still cast a shadow.
+  /* Make it rain: the visitor can ask for rain whatever the real sky is doing. Light cloud comes with it, so the palms still cast a shadow.
      The sky line keeps reporting the real weather. Remembered for this visit only. */
   var forced=false; try{forced=sessionStorage.getItem('mc_rain')==='1'}catch(e){}
   function wet(w){var b=w||sun.CLEAR;return {low:Math.max(b.low,.3),mid:b.mid,high:b.high,wind:b.wind,gust:b.gust,rain:Math.max(b.rain,3.2),vis:b.vis,score:b.score}}
@@ -593,10 +599,10 @@ html.fast *{transition:none!important}
   now(); setInterval(function(){if(!playing&&!scrubbing)now()},30000);
 
   function load(){
-    fetch('/sky.json').then(function(r){return r.ok?r.json():null}).then(function(j){
+    fetch('/sky.json?p=local').then(function(r){return r.ok?r.json():null}).then(function(j){
       if(!j||!j.ok||!j.now) return;
       data=j;
-      try{var w=weatherAt(Date.now());localStorage.setItem('mc_sky',JSON.stringify({at:Date.now(),now:w}))}catch(e){}
+      try{var w=weatherAt(Date.now());localStorage.setItem('mc_sky',JSON.stringify({at:Date.now(),now:w,place:here.lat+','+here.lon}))}catch(e){}
       if(!playing&&!scrubbing) now();
     }).catch(function(){});
   }
