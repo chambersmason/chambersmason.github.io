@@ -3,7 +3,8 @@
 //
 //   /qr            counts a QR scan, then forwards to the homepage
 //   /_v            beacon from /assets/v.js: page views, link clicks, time on page
-//   /sky.json      live Santa Monica weather and tonight's sunset forecast, cached for ten minutes
+//   /sky.json      live weather and the next sunset forecast, cached for ten minutes per place.
+//                  ?p=local: the visitor's own city (from Cloudflare's IP location); otherwise Santa Monica.
 //   /admin         the private dashboard (needs the admin key, see ADMIN_KEY_SHA256)
 //
 // The design subdomain is the /design folder; shared files under /assets stay shared.
@@ -21,7 +22,7 @@ export default {
     const path = url.pathname;
 
     if (path === "/_v" && request.method === "POST") return beacon(request, env, ctx);
-    if (path === "/sky.json") return skyJson(request, ctx);
+    if (path === "/sky.json") return skyJson(request, ctx, url.searchParams.get("p") === "local" ? visitorPlace(request) : HOME);
     if (path === "/qr" || path === "/qr/") return qr(request, env, ctx, url);
     if (path === "/admin" || path.startsWith("/admin/")) return admin(request, env, url);
 
@@ -41,16 +42,50 @@ export default {
       return Response.redirect(target.toString(), 301);
     }
 
+    if (path === "/" || path === "/index.html") {
+      // Always fetch the whole page: it differs by place, so a browser's cached copy can't be revalidated.
+      const fresh = new Request(request); fresh.headers.delete("if-none-match"); fresh.headers.delete("if-modified-since");
+      return withPlace(await env.ASSETS.fetch(fresh), visitorPlace(request));
+    }
     return env.ASSETS.fetch(request);
   },
 };
 
+/* ---------- where the visitor is: the homepage is lit by their own sky ---------- */
+
+// Cloudflare tags each request with a rough, city-level location from the IP address. No prompt, nothing stored.
+// Coordinates are rounded to a tenth of a degree (about 11 km) before they go anywhere, which also lets nearby visitors share a cached sky.
+// Without a location, or close to home, the page shows Mason's sky over Santa Monica, as it always has.
+const HOME = { lat: 34.0195, lon: -118.4912, name: "Santa Monica", tz: "America/Los_Angeles", local: false, home: true };
+
+function visitorPlace(request) {
+  const c = request.cf || {};
+  const lat = Number(c.latitude), lon = Number(c.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || (lat === 0 && lon === 0)) return HOME;
+  if (Math.abs(lat - HOME.lat) < 0.2 && Math.abs(lon - HOME.lon) < 0.2) return HOME;
+  const tz = typeof c.timezone === "string" && /^[A-Za-z_]+(\/[A-Za-z0-9_+-]+)*$/.test(c.timezone) ? c.timezone : "";
+  const name = String(c.city || c.region || "").replace(/[^\p{L}\p{M}\p{N} .'-]/gu, "").trim().slice(0, 40);
+  return { lat: Math.round(lat * 10) / 10, lon: Math.round(lon * 10) / 10, name: name || "your city", tz: tz || "UTC", local: true, home: false };
+}
+
+// The homepage gets the place before its first script runs, so the very first paint already has the visitor's sun.
+function withPlace(res, place) {
+  const type = res.headers.get("content-type") || "";
+  if (!res.ok || !type.includes("text/html")) return res;
+  const json = JSON.stringify(place).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+  const out = new HTMLRewriter().on("head", { element(e) { e.prepend("<script>window.__place=" + json + "</script>", { html: true }); } }).transform(res);
+  const h = new Response(out.body, out);
+  h.headers.set("cache-control", "private, no-cache");
+  h.headers.delete("etag"); h.headers.delete("last-modified");
+  return h;
+}
+
 /* ---------- the sky over Santa Monica: live weather and a sunset forecast for the homepage ---------- */
 
-const SKY_URL = "https://api.open-meteo.com/v1/forecast?latitude=34.0195&longitude=-118.4912"
+const skyUrl = (p) => "https://api.open-meteo.com/v1/forecast?latitude=" + p.lat + "&longitude=" + p.lon
   + "&current=temperature_2m,precipitation,weather_code,cloud_cover_low,cloud_cover_mid,cloud_cover_high,wind_speed_10m,wind_gusts_10m,visibility"
   + "&hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high,wind_speed_10m,wind_gusts_10m,precipitation,visibility"
-  + "&daily=sunrise,sunset&timezone=America%2FLos_Angeles&forecast_days=2&wind_speed_unit=mph&temperature_unit=fahrenheit&timeformat=unixtime";
+  + "&daily=sunrise,sunset&timezone=" + (p.home ? encodeURIComponent(p.tz) : "auto") + "&forecast_days=2&wind_speed_unit=mph&temperature_unit=fahrenheit&timeformat=unixtime";
 
 const n01 = (v) => Math.max(0, Math.min(1, (Number(v) || 0) / 100));
 const num0 = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
@@ -122,25 +157,28 @@ function applyObservation(now, o, at) {
   return now;
 }
 
-async function skyJson(request, ctx) {
-  const cache = caches.default, key = new Request("https://masonchambers.com/__sky/v2"), lastKey = new Request("https://masonchambers.com/__sky/v2-last");
+async function skyJson(request, ctx, place) {
+  const cell = place.home ? "home" : place.lat + "," + place.lon;
+  const cache = caches.default, key = new Request("https://masonchambers.com/__sky/v3/" + cell), lastKey = new Request("https://masonchambers.com/__sky/v3-last/" + cell);
+  const share = place.home ? "public" : "private";
   let res = await cache.match(key);
   if (!res) {
     let body;
     try {
       const [r, o] = await Promise.all([
-        fetch(SKY_URL, { headers: { accept: "application/json" } }),
-        fetch(OBS_URL, { headers: { accept: "application/geo+json", "user-agent": "masonchambers.com homepage weather" } }).then((x) => (x.ok ? x.json() : null)).catch(() => null),
+        fetch(skyUrl(place), { headers: { accept: "application/json" } }),
+        !place.home ? null : fetch(OBS_URL, { headers: { accept: "application/geo+json", "user-agent": "masonchambers.com homepage weather" } }).then((x) => (x.ok ? x.json() : null)).catch(() => null),
       ]);
       if (!r.ok) throw new Error("feed " + r.status);
       const at = Date.now();
       body = shapeSky(await r.json(), at);
+      body.place = { name: place.name, local: place.local };
       if (!body.hours.length) throw new Error("empty feed");
       try { applyObservation(body.now, o, at); } catch (e) {}
     } catch (e) {
       // The forecast feed fails now and then. Serve the last good sky (its hourly forecast still holds); with none, the page falls back to the sun alone.
       const last = await cache.match(lastKey);
-      if (last) { const out = new Response(last.body, last); out.headers.set("cache-control", "public, max-age=120"); return out; }
+      if (last) { const out = new Response(last.body, last); out.headers.set("cache-control", share + ", max-age=120"); return out; }
       return Response.json({ ok: false }, { headers: { "cache-control": "no-store" } });
     }
     res = Response.json(body, { headers: { "cache-control": "public, max-age=600" } });
@@ -148,7 +186,7 @@ async function skyJson(request, ctx) {
     ctx.waitUntil(cache.put(lastKey, Response.json(body, { headers: { "cache-control": "public, max-age=43200" } })));
   }
   const out = new Response(res.body, res);
-  out.headers.set("cache-control", "public, max-age=300");
+  out.headers.set("cache-control", share + ", max-age=300");
   return out;
 }
 
