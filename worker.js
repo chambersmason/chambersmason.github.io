@@ -110,7 +110,7 @@ async function places(url, ctx) {
     ctx.waitUntil(cache.put(key, res.clone()));
     return res;
   } catch (e) {
-    return Response.json([], { headers: { "cache-control": "no-store" } });
+    return Response.json([], { status: 502, headers: { "cache-control": "no-store" } });
   }
 }
 
