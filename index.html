@@ -22,7 +22,7 @@
 <link rel="manifest" href="/assets/icons/site.webmanifest">
 <link rel="preload" href="/assets/fonts/bricolage.woff2" as="font" type="font/woff2" crossorigin>
 <script type="application/ld+json">
-{"@context":"https://schema.org","@type":"Person","name":"Mason Chambers","email":"mailto:masonchambers.compsci@gmail.com","url":"https://masonchambers.com","address":{"@type":"PostalAddress","addressLocality":"Los Angeles","addressRegion":"CA"},"sameAs":["https://github.com/chambersmason","https://www.linkedin.com/in/mason-chambers/","https://x.com/mason_compsci","https://www.mase-services.com"]}
+{"@context":"https://schema.org","@type":"Person","name":"Mason Chambers","email":"mailto:mason@masonchambers.com","url":"https://masonchambers.com","address":{"@type":"PostalAddress","addressLocality":"Los Angeles","addressRegion":"CA"},"sameAs":["https://github.com/chambersmason","https://www.linkedin.com/in/mason-chambers/","https://x.com/mason_compsci","https://www.mase-services.com"]}
 </script>
 <script>
 /* The page is lit by the real sky over Santa Monica: sun, moon, cloud, wind, fog and rain. Runs before first paint. */
@@ -207,6 +207,10 @@ footer p{margin:0;max-width:36rem;text-wrap:pretty}
 footer button{font:inherit;color:var(--ink);background:none;border:0;padding:0;margin-left:2px;cursor:pointer;
   background-image:linear-gradient(currentColor,currentColor);background-size:100% 1px;background-repeat:no-repeat;background-position:0 100%}
 footer button:hover{opacity:.62}
+/* The page's controls, in one quiet row under the sky line */
+.controls{display:flex;flex-wrap:wrap;gap:6px 20px;margin-top:10px}
+.controls button{margin-left:0}
+.controls[hidden],.controls button[hidden]{display:none}
 .tnum{font-variant-numeric:tabular-nums}
 
 /* Light: palm shadows and window glow cast over the page by the real sun */
@@ -261,7 +265,7 @@ html.fast *{transition:none!important}
     <li><a href="https://github.com/chambersmason"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>GitHub</a></li>
     <li><a href="https://www.linkedin.com/in/mason-chambers/"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.064 2.064 0 1 1 0-4.128 2.064 2.064 0 0 1 0 4.128zM7.119 20.452H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>LinkedIn</a></li>
     <li><a href="https://x.com/mason_compsci"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z"/></svg>X</a></li>
-    <li><a href="mailto:masonchambers.compsci@gmail.com"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3.5 6.5 12 13l8.5-6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>Email</a></li>
+    <li><a href="mailto:mason@masonchambers.com"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3.5 6.5 12 13l8.5-6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>Email</a></li>
   </ul>
 
   <ul class="work">
@@ -275,7 +279,7 @@ html.fast *{transition:none!important}
   </ul>
 
   <section class="contact">
-    <p>Say hello at <a href="mailto:masonchambers.compsci@gmail.com">masonchambers.compsci@gmail.com</a>, or <a href="https://cal.com/masonchambers">book a time</a>.</p>
+    <p>Say hello at <a href="mailto:mason@masonchambers.com">mason@masonchambers.com</a>, or <a href="https://cal.com/masonchambers">book a time</a>.</p>
   </section>
 
   <footer>
@@ -289,7 +293,7 @@ html.fast *{transition:none!important}
       <path id="arcB" fill="none" stroke="var(--mute)" stroke-width="1" stroke-linecap="round" stroke-dasharray="1.5 3" clip-path="url(#below)"/>
       <circle id="dot" r="3.5" fill="var(--ink)" stroke="var(--bg)" stroke-width="2"/>
     </svg>
-    <p><span id="sunline">The light on this page is the real sky over Santa Monica.</span> <button class="play" type="button">Play a day</button><span id="tonight" hidden></span></p>
+    <p><span id="sunline">The light on this page is the real sky over Santa Monica.</span><span id="tonight" hidden></span><span class="controls"><button class="play" type="button">Play a day</button><button class="rainbtn" type="button" aria-pressed="false">Make it rain</button></span></p>
   </footer>
 </main>
 
@@ -396,8 +400,12 @@ html.fast *{transition:none!important}
   }
   var lastTxt='', lastFc='';
   function fast(on){window.__fast=on;document.documentElement.classList.toggle('fast',!!on)}
+  /* Make it rain: the visitor can ask for rain whatever Santa Monica is doing. Light cloud comes with it, so the palms still cast a shadow.
+     The sky line keeps reporting the real weather. Remembered for this visit only. */
+  var forced=false; try{forced=sessionStorage.getItem('mc_rain')==='1'}catch(e){}
+  function wet(w){var b=w||sun.CLEAR;return {low:Math.max(b.low,.3),mid:b.mid,high:b.high,wind:b.wind,gust:b.gust,rain:Math.max(b.rain,3.2),vis:b.vis,score:b.score}}
   function render(t){
-    var w=weatherAt(t), r=sun.apply(t,w||undefined);
+    var w=weatherAt(t), r=sun.apply(t,forced?wet(w):(w||undefined));
     place(t); var tw=window.__fast?Math.round(t/6e5)*6e5:t, txt=words(tw,r,w); if(txt!==lastTxt){lastTxt=txt;line.innerHTML=txt}
     forecast(t); rain.set(r.sky.rain,r.sky.wind>12?1:r.sky.wind/12);
     return r;
@@ -569,8 +577,16 @@ html.fast *{transition:none!important}
     }
     addEventListener('resize',function(){if(W){size();if(reduce&&k)start()}});
     document.addEventListener('visibilitychange',function(){if(document.hidden)on=0;else if(k)start()});
-    return {set:function(v,w){v=Math.round(v*20)/20;wind=w||0;if(v===k)return;k=v;cv.style.opacity=k?1:0;if(tiltline&&!tiltOn)tiltline.hidden=!k;if(pill)pill.hidden=!k;if(k){idle=0;start()}}};
+    return {ok:(function(){try{return !!document.createElement('canvas').getContext('webgl')}catch(e){return false}})(),set:function(v,w){v=Math.round(v*20)/20;wind=w||0;if(v===k)return;k=v;cv.style.opacity=k?1:0;if(tiltline&&!tiltOn)tiltline.hidden=!k;if(pill)pill.hidden=!k;if(k){idle=0;start()}}};
   })();
+
+  var rainBtn=document.querySelector('.rainbtn');
+  function rainLabel(){rainBtn.textContent=forced?'Stop the rain':'Make it rain';rainBtn.setAttribute('aria-pressed',forced?'true':'false')}
+  if(!rain.ok){rainBtn.hidden=true;forced=false} else rainLabel();
+  rainBtn.addEventListener('click',function(){
+    forced=!forced; try{sessionStorage.setItem('mc_rain',forced?'1':'0')}catch(e){}
+    rainLabel(); if(!playing&&!scrubbing) now();
+  });
 
   var playing=0, scrubbing=0, raf;
   function now(){render(frozen||Date.now())}
@@ -634,9 +650,7 @@ html.fast *{transition:none!important}
 .self.far{filter:blur(calc(9px + var(--sh-b,4px)*2.1));-webkit-mask-image:linear-gradient(to top,transparent 22%,#000 66%);mask-image:linear-gradient(to top,transparent 22%,#000 66%)}
 /* At night a shadow needs light to fall out of: a faint wash of moonlight comes up behind it while someone is casting one. */
 .wash{position:absolute;inset:0;pointer-events:none;opacity:0;mix-blend-mode:screen;transition:opacity 1.6s ease;background:radial-gradient(130% 100% at 72% 0%,#A9BBD8,#6F82A6 55%,transparent 115%)}
-.castline{display:block;margin-top:9px}
-.castline button{margin-left:0}
-.castline .note{margin-left:6px}
+.castnote{display:block;margin-top:6px}
 </style>
 <script>
 (function(){
@@ -687,17 +701,16 @@ html.fast *{transition:none!important}
     document.addEventListener('mouseleave',function(){shown=0;paint()})}
 
   /* Camera shadow, only after the visitor asks. Frames are segmented on the device and never stored or sent anywhere. */
-  var line=document.createElement('span'); line.className='castline';
-  line.innerHTML='<button type="button" class="castbtn">Cast your shadow</button><span class="note">Uses your camera. The video never leaves your device.</span>';
-  document.querySelector('footer p').appendChild(line);
-  var btn=line.querySelector('.castbtn'), note=line.querySelector('.note');
+  var controls=document.querySelector('footer .controls'), btn=document.createElement('button'), note=document.createElement('span');
+  btn.type='button'; btn.className='castbtn'; btn.textContent='Cast your shadow'; controls.appendChild(btn);
+  note.className='castnote'; note.textContent='The shadow uses your camera. The video never leaves your device.'; controls.after(note);
   var video=null, stream=null, seg=null, loop=0, busy=0, cx=null, cx2=null, img=null, flip=null, soft=null, was=null, stir=0, stirT=0;
   function say(t){note.textContent=t}
   function stop(msg){
     cam=0; cancelAnimationFrame(loop); loop=0; busy=0; stir=stirT=0; fronds.style.removeProperty('--sw');
     if(stream){stream.getTracks().forEach(function(t){t.stop()});stream=null}
     if(video){video.srcObject=null}
-    btn.textContent='Cast your shadow'; btn.disabled=false; say(msg||'Uses your camera. The video never leaves your device.'); paint();
+    btn.textContent='Cast your shadow'; btn.disabled=false; say(msg||'The shadow uses your camera. The video never leaves your device.'); paint();
   }
   function draw(f,w,h){
     var n=w*h, i, j;
