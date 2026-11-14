@@ -22,7 +22,11 @@ export default {
     const path = url.pathname;
 
     if (path === "/_v" && request.method === "POST") return beacon(request, env, ctx);
-    if (path === "/sky.json") return skyJson(request, ctx, url.searchParams.get("p") === "local" ? visitorPlace(request) : HOME);
+    if (path === "/sky.json") {
+      const q = url.searchParams;
+      return skyJson(request, ctx, q.get("p") === "local" ? visitorPlace(request) : q.has("lat") ? chosenPlace(q) : HOME);
+    }
+    if (path === "/places.json") return places(url, ctx);
     if (path === "/qr" || path === "/qr/") return qr(request, env, ctx, url);
     if (path === "/admin" || path.startsWith("/admin/")) return admin(request, env, url);
 
@@ -66,6 +70,48 @@ function visitorPlace(request) {
   const tz = typeof c.timezone === "string" && /^[A-Za-z_]+(\/[A-Za-z0-9_+-]+)*$/.test(c.timezone) ? c.timezone : "";
   const name = String(c.city || c.region || "").replace(/[^\p{L}\p{M}\p{N} .'-]/gu, "").trim().slice(0, 40);
   return { lat: Math.round(lat * 10) / 10, lon: Math.round(lon * 10) / 10, name: name || "your city", tz: tz || "UTC", local: true, home: false };
+}
+
+const TZ = /^[A-Za-z_]+(\/[A-Za-z0-9_+-]+)*$/;
+const cleanName = (v) => String(v || "").replace(/[^\p{L}\p{M}\p{N} .'-]/gu, "").replace(/\s+/g, " ").trim().slice(0, 40);
+
+// A city the visitor picked from the footer. Same rounding as a detected place, so picked and detected cities share cached skies.
+function chosenPlace(q) {
+  const lat = Number(q.get("lat")), lon = Number(q.get("lon"));
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return HOME;
+  if (Math.abs(lat - HOME.lat) < 0.2 && Math.abs(lon - HOME.lon) < 0.2) return HOME;
+  const tz = String(q.get("tz") || "");
+  return { lat: Math.round(lat * 10) / 10, lon: Math.round(lon * 10) / 10, name: cleanName(q.get("name")) || "this city", tz: TZ.test(tz) ? tz : "UTC", local: false, home: false };
+}
+
+// City search for the footer's picker: up to four matches, each with its timezone so the page can tell the time there.
+async function places(url, ctx) {
+  const q = String(url.searchParams.get("q") || "").replace(/[^\p{L}\p{M}\p{N} .'-]/gu, "").replace(/\s+/g, " ").trim().slice(0, 60);
+  const headers = { "cache-control": "public, max-age=86400" };
+  if (q.length < 2) return Response.json([], { headers });
+  const cache = caches.default, key = new Request("https://masonchambers.com/__places/v1/" + encodeURIComponent(q.toLowerCase()));
+  const hit = await cache.match(key);
+  if (hit) return hit;
+  try {
+    const r = await fetch("https://geocoding-api.open-meteo.com/v1/search?count=10&language=en&format=json&name=" + encodeURIComponent(q), { headers: { accept: "application/json" } });
+    if (!r.ok) throw new Error("geocoding " + r.status);
+    const j = await r.json(), seen = new Set(), out = [];
+    for (const g of j.results || []) {
+      const lat = Number(g.latitude), lon = Number(g.longitude), name = cleanName(g.name), tz = String(g.timezone || "");
+      if (!name || !Number.isFinite(lat) || !Number.isFinite(lon) || !TZ.test(tz)) continue;
+      const region = cleanName(g.admin1) === name ? "" : cleanName(g.admin1), country = cleanName(g.country);
+      const id = [name, region, country].join("|");
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push({ name, region, country, lat: Math.round(lat * 1e4) / 1e4, lon: Math.round(lon * 1e4) / 1e4, tz });
+      if (out.length === 4) break;
+    }
+    const res = Response.json(out, { headers });
+    ctx.waitUntil(cache.put(key, res.clone()));
+    return res;
+  } catch (e) {
+    return Response.json([], { headers: { "cache-control": "no-store" } });
+  }
 }
 
 // The homepage gets the place before its first script runs, so the very first paint already has the visitor's sun.
