@@ -22,16 +22,22 @@
 <link rel="manifest" href="/assets/icons/site.webmanifest">
 <link rel="preload" href="/assets/fonts/bricolage.woff2" as="font" type="font/woff2" crossorigin>
 <script type="application/ld+json">
-{"@context":"https://schema.org","@type":"Person","name":"Mason Chambers","email":"mailto:mason@masonchambers.com","url":"https://masonchambers.com","address":{"@type":"PostalAddress","addressLocality":"Los Angeles","addressRegion":"CA"},"sameAs":["https://github.com/chambersmason","https://www.linkedin.com/in/mason-chambers/","https://x.com/mason_compsci","https://www.mase-services.com"]}
+{"@context":"https://schema.org","@type":"Person","name":"Mason Chambers","email":"mailto:mason@masonchambers.com","url":"https://masonchambers.com","address":{"@type":"PostalAddress","addressLocality":"Los Angeles","addressRegion":"CA"},"sameAs":["https://www.linkedin.com/in/mason-chambers/","https://x.com/mason_compsci","https://www.mase-services.com"]}
 </script>
 <script>
 /* The page is lit by the real sky where the visitor is: sun, moon, cloud, wind, fog and rain. Runs before first paint.
    The server puts the visitor's rough, city-level place in window.__place; without one it is Mason's sky over Santa Monica. */
 (function(){
-  var P=window.__place, HOME={lat:34.0195,lon:-118.4912,name:'Santa Monica',tz:'America/Los_Angeles',local:false};
-  if(!P||typeof P.lat!=='number'||typeof P.lon!=='number') P=HOME;
-  try{new Intl.DateTimeFormat('en-US',{timeZone:P.tz})}catch(e){P.tz=HOME.tz}
-  window.__place=P;
+  var HOME={lat:34.0195,lon:-118.4912,name:'Santa Monica',tz:'America/Los_Angeles',local:false};
+  function valid(p){
+    if(!p||typeof p.lat!=='number'||typeof p.lon!=='number'||!isFinite(p.lat)||!isFinite(p.lon)||Math.abs(p.lat)>90||Math.abs(p.lon)>180) return null;
+    try{new Intl.DateTimeFormat('en-US',{timeZone:p.tz})}catch(e){p.tz=HOME.tz}
+    p.name=String(p.name||'').slice(0,40)||'this city'; return p;
+  }
+  /* A city the visitor picked on this device wins over the one the server detected. */
+  var D=valid(window.__place)||HOME, C=null;
+  try{C=valid(JSON.parse(localStorage.getItem('mc_place')||'null'));if(C){C.chosen=true;C.local=false}}catch(e){C=null}
+  var P=C||D; window.__detected=D; window.__place=P;
   var LAT=P.lat, LON=P.lon, R=Math.PI/180;
   function eq(lon,lat,d){ /* ecliptic -> altitude/azimuth for the observer */
     var e=(23.439-3.6e-7*d)*R;
@@ -61,11 +67,21 @@
   function mix(a,b,t){t=Math.max(0,Math.min(1,t));a=hex(a);b=hex(b);return '#'+a.map(function(v,i){return Math.round(v+(b[i]-v)*t).toString(16).padStart(2,'0')}).join('')}
   function ease(x){x=Math.max(0,Math.min(1,x));return x*x*(3-2*x)}
   function clamp(x){return Math.max(0,Math.min(1,x))}
+  function lerp1(a,b,t){return a+(b-a)*t}
+  /* How far shadows lean: by the sun's east-west offset, so the lean passes through zero whether the sun crosses south or north */
+  function skew(az){return Math.max(-24,Math.min(24,.27*Math.asin(-Math.sin(az*R))/R))}
   function pair(a,b,t){return [mix(a[0],b[0],t),mix(a[1],b[1],t)]}
+  function lum(h){var c=hex(h);return (.2126*c[0]+.7152*c[1]+.0722*c[2])/255}
+  var DUSK=pair(S.dusk,S.gold,ease(.2));                               /* the paper at -4°, where twilight starts to take it */
   function palette(a){
-    if(a<-6) return {c:pair(S.blue,S.night,ease((-6-a)/10)),dark:true};
-    if(a<4)  return {c:pair(S.dusk,S.gold,ease((a+6)/10)),dark:false};
-    return {c:pair(S.gold,S.day,ease((a-4)/22)),dark:false};
+    if(a<-8) return {c:pair(S.blue,S.night,ease((-8-a)/8)),dark:true,dk:1};
+    /* Civil twilight: the paper darkens through dusk into blue, and the ink turns over where the paper does.
+       In real time it turns at once and CSS eases it; while the sun itself is travelling it dissolves over three degrees.
+       A glide starts and lands on the real-time ink, so text is never left grey while the sun stands still. */
+    if(a<-4){var bg=mix(DUSK[0],S.blue[0],ease((-4-a)/4)), L=lum(bg), tw=window.__tw!=null?window.__tw:window.__fast?1:0, dk=lerp1(L<.42?1:0,ease((-4.85-a)/3.2),tw);
+      return {c:[bg,mix(DUSK[1],S.blue[1],dk)],dark:dk>.5,dk:dk}}
+    if(a<4)  return {c:pair(S.dusk,S.gold,ease((a+6)/10)),dark:false,dk:0};
+    return {c:pair(S.gold,S.day,ease((a-4)/22)),dark:false,dk:0};
   }
   /* Weather, normalised: cloud layers 0..1, wind and gust in mph, rain in mm/h, vis in metres, score 0..10 for the next sunset. */
   var CLEAR={low:0,mid:0,high:0,wind:5,gust:8,rain:0,vis:24000,score:null};
@@ -75,79 +91,87 @@
     var fog=ease((6000-w.vis)/5000), rain=clamp(Math.sqrt(Math.max(0,w.rain))/2.2);
     return {occl:occl,fog:fog,rain:rain,wind:w.wind,gust:w.gust,score:w.score};
   }
-  var seen={};
+  var seen={meta:0};
   function put(s){return {setProperty:function(k,v){if(seen[k]!==v){seen[k]=v;s.setProperty(k,v)}}}}
   function light(pos,mn,k,s){
     var a=pos.alt, az=pos.az, o, r, sy, b, c, go, gc, gm, gx, direct=(1-.94*k.occl)*(1-.85*k.fog);
-    var evening=az>180, sc=k.score==null?null:clamp(k.score/10);
+    var ev=ease((.259-Math.sin(az*R))/.518), sc=k.score==null?null:clamp(k.score/10);     /* morning to evening, eased across due south */
     if(a>-2){
       var up=ease((a+2)/10), low=ease((16-a)/14);
       o=.19*up*(1-.38*low)*direct;
-      r=Math.max(-24,Math.min(24,(az-180)*.24));
+      r=skew(az);
       sy=1+Math.min(.6,.12/Math.tan(Math.max(a,3)*R));
       b=1.6+(1-ease(a/40))*6.5+k.occl*9+k.fog*16;                  /* thin cloud and fog widen the penumbra */
       c=mix('#3A4458','#57405F',low*(1-k.occl));
       /* Low sun: the glow is tonight's forecast. A vivid sunset is stronger and redder, a grey one barely shows. */
-      var gk=(sc!=null&&evening)?(.18+1.25*sc):(1-.75*k.occl)*(1-.6*k.fog);
-      go=Math.min(.9,.55*low*up*gk); gc=(sc!=null&&evening)?mix('#F2C9A0','#FF7A52',sc):'#FFB06A';
-      gm='soft-light'; gx=evening?'100%':'0%';
+      var g0=(1-.75*k.occl)*(1-.6*k.fog), gk=sc!=null?lerp1(g0,.18+1.25*sc,ev):g0;
+      /* The glow sits in the window the sun is in; crossing south it dims, slides over, and comes back */
+      go=Math.min(.9,.55*low*up*gk)*(.25+.75*Math.abs(2*ev-1)); gc=sc!=null?mix('#FFB06A',mix('#F2C9A0','#FF7A52',sc),ev):'#FFB06A';
+      gm='soft-light'; gx=(ev*100).toFixed(1)+'%';
     }else{
       /* Night: the only shadows are the moon's. Full and high, they are clear; a new moon or cloud leaves none. */
       var n=ease((-2-a)/8), ml=mn.alt>0?mn.lit*ease(mn.alt/22):0;
       o=n*(.05+.42*ml)*(1-.9*k.occl)*(1-.8*k.fog);
-      r=mn.alt>0?Math.max(-24,Math.min(24,(mn.az-180)*.24)):10;
+      r=mn.alt>0?skew(mn.az):10;
       sy=mn.alt>0?1+Math.min(.6,.12/Math.tan(Math.max(mn.alt,3)*R)):1.15;
       b=9+k.occl*8+k.fog*14; c='#000000';
-      go=n*(.05+.2*ml)*(1-.7*k.occl); gc='#9DB3D6'; gm='screen'; gx=(mn.alt>0&&mn.az<180)?'0%':'100%';
+      var mv=ease((.259-Math.sin(mn.az*R))/.518), mu=ease(mn.alt/4);
+      go=n*(.05+.2*ml)*(1-.7*k.occl)*(1-mu*.75*(1-Math.abs(2*mv-1))); gc='#9DB3D6'; gm='screen'; gx=(lerp1(100,mv*100,mu)).toFixed(1)+'%';
     }
     s.setProperty('--sh-o',o.toFixed(3)); s.setProperty('--sh-r',r.toFixed(2)+'deg');
     s.setProperty('--sh-sy',sy.toFixed(3)); s.setProperty('--sh-b',Math.round(b)+'px'); s.setProperty('--sh-c',c);
     s.setProperty('--gl-o',go.toFixed(3)); s.setProperty('--gl-c',gc); s.setProperty('--gl-m',gm); s.setProperty('--gl-x',gx);
     /* Link chips cast a short shadow away from the sun: long and sideways when it is low, short and soft at noon, flat under cloud. */
     var ix, iy, ib, ia, ic, hi;
-    if(a>-2){
-      var kk=ease((a+2)/10), lo=ease((16-a)/14), L=(2+7*(1-ease(a/55)))*(.35+.65*direct);
-      ix=-Math.sin(az*R)*L*.8; iy=1+L*.55; ib=4+L*1.3+k.occl*6; ia=(.12+.14*lo)*Math.max(kk,.45)*(.6+.4*direct); ic=c; hi='rgba(255,255,255,.6)';
-    }else{
-      ix=0; iy=3; ib=12; ia=.5; ic='#000000'; hi='rgba(255,255,255,.07)';
-    }
+    /* Below the horizon the sunlit chip shadow hands over to the night one across four degrees, so nothing switches. */
+    var kk=ease((a+2)/10), lo=ease((16-a)/14), L=(2+7*(1-ease(a/55)))*(.35+.65*direct), tn=a>-2?0:ease((-2-a)/4);
+    ix=-Math.sin(az*R)*L*.8*(1-tn); iy=lerp1(1+L*.55,3,tn); ib=lerp1(4+L*1.3+k.occl*6,12,tn);
+    ia=lerp1((.12+.14*lo)*Math.max(kk,.45)*(.6+.4*direct),.5,tn);
+    ic=mix(a>-2?c:mix('#3A4458','#57405F',lo*(1-k.occl)),'#000000',tn); hi='rgba(255,255,255,'+lerp1(.6,.07,tn).toFixed(3)+')';
     var rgb=hex(ic);
     s.setProperty('--ic-x',ix.toFixed(2)+'px'); s.setProperty('--ic-y',iy.toFixed(2)+'px'); s.setProperty('--ic-b',ib.toFixed(1)+'px');
     s.setProperty('--ic-c','rgba('+rgb.join(',')+','+ia.toFixed(3)+')'); s.setProperty('--ic-hi',hi);
   }
-  var lastWind=-1;
-  function air(k,dark,s){
-    /* Wind sets how far and how fast the fronds move. Stepped, so the animation only restarts when the wind really changes. */
-    var step=Math.round(Math.min(30,k.wind+.35*Math.max(0,k.gust-k.wind))/3);
-    /* Not while a day is playing: changing the sway speed restarts the animation, and the fronds would jump. */
-    if(step!==lastWind&&!window.__fast){lastWind=step;
-      s.setProperty('--sw',(.35+step*.3).toFixed(2)); s.setProperty('--sw-d',Math.max(3.5,13-step*1.05).toFixed(1)+'s');}
-    s.setProperty('--fog-o',(k.fog*(dark?.16:.5)).toFixed(3)); s.setProperty('--fog-c',dark?'#8E9BB0':'#F1F1EE');
+  function air(k,dk,s){
+    var dark=dk>.5;
+    /* Wind sets how far and how fast the fronds move. Speed goes through the playback rate, so the sway never restarts. */
+    /* The CSS duration never changes; speed is the animations' playback rate, which keeps their phase, so the fronds never jump. */
+    var step=Math.min(30,k.wind+.35*Math.max(0,k.gust-k.wind))/3, rate=Math.round(11/Math.max(3.5,13-step*1.05)*50)/50;
+    s.setProperty('--sw',(.35+step*.3).toFixed(2));
+    try{var an=[];document.querySelectorAll('.sway').forEach(function(e){if(e.getAnimations)an=an.concat(e.getAnimations())});
+      an.forEach(function(x){if(x.playbackRate!==rate)(x.updatePlaybackRate?x.updatePlaybackRate(rate):x.playbackRate=rate)})}catch(e){}
+    s.setProperty('--fog-o',(k.fog*lerp1(.5,.16,dk)).toFixed(3)); s.setProperty('--fog-c',mix('#F1F1EE','#8E9BB0',dk));
     s.setProperty('--rain-o',(k.rain?(dark?.55:.38)*(.5+.5*k.rain):0).toFixed(3));
     s.setProperty('--rain-m',dark?'screen':'multiply'); s.setProperty('--rain-c',dark?'#AEBBD0':'#4A4E55');
   }
-  function apply(t,w){
+  function apply(t,w){return paint(position(t),moon(t),w)}
+  /* Light the page for a sun and moon wherever they are: the real ones now, or ones in between while the sky travels. */
+  function paint(pos,mn,w){
     w=w||window.__w||CLEAR;
-    var pos=position(t), mn=moon(t), a=pos.alt, p=palette(a), bg=p.c[0], ink=p.c[1], k=sky(w), root=document.documentElement.style, s=put(root);
-    light(pos,mn,k,s); air(k,p.dark,s);
-    if(!p.dark){
+    var a=pos.alt, p=palette(a), dk=p.dk, bg=p.c[0], ink=p.c[1], k=sky(w), root=document.documentElement.style, s=put(root), bl=bg, bd=bg;
+    light(pos,mn,k,s); air(k,dk,s); window.__dk=dk;
+    if(dk<1){
       /* Cloud flattens and cools the paper; fog lifts it; a vivid forecast warms the last light. */
       var dayness=ease((a+7)/7);
-      bg=mix(bg,a<8?mix('#D9DADB','#E7E8E8',ease(a/8)):'#E7E8E8',.62*k.occl*dayness); bg=mix(bg,'#EDEDEA',.5*k.fog);
-      if(k.score!=null&&pos.az>180) bg=mix(bg,'#EBCDBC',.45*clamp(k.score/10)*ease((8-a)/10)*ease((a+6)/5));
-    }else{
-      bg=mix(bg,'#1A1F29',.35*k.occl);
+      bl=mix(bl,a<8?mix('#D9DADB','#E7E8E8',ease(a/8)):'#E7E8E8',.62*k.occl*dayness); bl=mix(bl,'#EDEDEA',.5*k.fog);
+      if(k.score!=null) bl=mix(bl,'#EBCDBC',.45*clamp(k.score/10)*ease((8-a)/10)*ease((a+6)/5)*ease((.259-Math.sin(pos.az*R))/.518));
     }
+    if(dk>0) bd=mix(bd,'#1A1F29',.35*k.occl);
+    bg=dk<=0?bl:dk>=1?bd:mix(bl,bd,dk);
     s.setProperty('--bg',bg); s.setProperty('--ink',ink);
-    s.setProperty('--mute',mix(bg,ink,p.dark?.6:.7)); s.setProperty('--rule',mix(bg,ink,p.dark?.18:.13));
-    s.setProperty('--chip',p.dark?mix(bg,ink,.07):mix(bg,'#FFFFFF',.55));
+    s.setProperty('--mute',mix(bg,ink,.7-.1*dk)); s.setProperty('--rule',mix(bg,ink,.13+.05*dk));
+    s.setProperty('--chip',dk<=0?mix(bg,'#FFFFFF',.55):dk>=1?mix(bg,ink,.07):mix(mix(bg,'#FFFFFF',.55),mix(bg,ink,.07),dk));
     if(seen.cs!==p.dark){seen.cs=p.dark;root.colorScheme=p.dark?'dark':'light'}
-    if(!window.__fast){var m=document.querySelector('meta[name=theme-color]'); if(m&&m.content!==bg) m.content=bg}
-    return {alt:a,az:pos.az,moon:mn,sky:k,dark:p.dark};
+    var tn=performance.now(); if(!window.__fast||tn-seen.meta>120){seen.meta=tn;var m=document.querySelector('meta[name=theme-color]'); if(m&&m.content!==bg) m.content=bg}
+    var r={alt:a,az:pos.az,moon:mn,sky:k,dark:p.dark,dk:dk};
+    if(window.__sun&&window.__sun.onpaint) window.__sun.onpaint(r);
+    return r;
   }
   /* Start from the last sky this browser saw, so the first paint is already weathered. */
   try{var c=JSON.parse(localStorage.getItem('mc_sky')||'null');if(c&&c.at&&Date.now()-c.at<36e5&&c.now&&c.place===LAT+','+LON)window.__w=c.now}catch(e){}
-  window.__sun={altitude:altitude,position:position,moon:moon,apply:apply,CLEAR:CLEAR};
+  /* Move the observer: every sun and moon position after this is for the new place. */
+  function setPlace(p){p=valid(p);if(!p)return null;LAT=p.lat;LON=p.lon;window.__place=p;return p}
+  window.__sun={altitude:altitude,position:position,moon:moon,apply:apply,paint:paint,sky:sky,CLEAR:CLEAR,setPlace:setPlace,HOME:HOME};
   apply(Date.now());
 })();
 </script>
@@ -202,8 +226,8 @@ h1{margin:0;max-width:13ch;font-size:clamp(2.6rem,1.15rem + 5.4vw,5.6rem);line-h
 .contact p a{background:linear-gradient(currentColor,currentColor) 0 100%/100% 1px no-repeat;background-position:0 calc(100% - .04em);transition:opacity .2s ease}
 .contact p a:hover{opacity:.62}
 
-footer{display:flex;align-items:center;gap:18px;margin-top:clamp(88px,13vw,176px);color:var(--mute);font-size:13px;line-height:1.45}
-footer svg{flex:none;width:132px;height:40px;overflow:visible;cursor:ew-resize;touch-action:none;-webkit-tap-highlight-color:transparent;outline-offset:8px;border-radius:4px}
+footer{display:flex;align-items:flex-start;gap:18px;margin-top:clamp(88px,13vw,176px);color:var(--mute);font-size:13px;line-height:1.45}
+footer svg{flex:none;width:132px;height:40px;margin-top:-10.6px;overflow:visible;cursor:ew-resize;touch-action:none;-webkit-tap-highlight-color:transparent;outline-offset:8px;border-radius:4px}
 footer svg #dot{transition:r .2s ease}footer svg:hover #dot,footer svg.held #dot{r:4.6px}
 footer svg:focus-visible{outline:1.5px solid var(--ink)}
 footer p{margin:0;max-width:36rem;text-wrap:pretty}
@@ -212,11 +236,27 @@ footer p{margin:0;max-width:36rem;text-wrap:pretty}
 footer button{font:inherit;color:var(--ink);background:none;border:0;padding:0;margin-left:2px;cursor:pointer;
   background-image:linear-gradient(currentColor,currentColor);background-size:100% 1px;background-repeat:no-repeat;background-position:0 100%}
 footer button:hover{opacity:.62}
+@media (pointer:coarse){footer button{position:relative}footer button::after{content:"";position:absolute;inset:-9px -6px}}
 /* The page's controls, in one quiet row under the sky line */
 .controls{display:flex;flex-wrap:wrap;gap:6px 20px;margin-top:10px}
 .controls button{margin-left:0}
 .controls[hidden],.controls button[hidden]{display:none}
 .tnum{font-variant-numeric:tabular-nums}
+/* The city in the sky line is the control. Tapped, it becomes a field in the same place; suggestions are plain lines beneath. */
+footer button.city{margin-left:0}
+footer button.city[hidden]{display:none}
+.cityfield{font:inherit;font-size:16px;line-height:1.15;color:var(--ink);background:transparent;border:0;box-shadow:inset 0 -1px 0 var(--ink);border-radius:0;
+  padding:0;margin:0;width:9.5em;max-width:min(60vw,22em);vertical-align:baseline;outline:0;-webkit-appearance:none;appearance:none}
+.cityfield::placeholder{color:var(--mute);opacity:1}
+.cityfield[hidden]{display:none}
+.picks{display:block;margin:7px 0 3px}.picks[hidden]{display:none}
+.pick{display:block;padding:2px 0;color:var(--mute);cursor:pointer;transition:color .15s ease}
+.pick[aria-selected="true"]{color:var(--ink)}.pick[aria-selected="true"] .rg{color:var(--mute)}
+.pick.none{cursor:default}
+@media (pointer:coarse){.pick{padding:12.6px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+@media (pointer:fine){.cityfield{font-size:inherit;line-height:inherit}}
+#sunline{transition:opacity .2s ease}#sunline.going{opacity:.45!important}
+.where,#sunline>span{transition:opacity .28s cubic-bezier(.2,0,0,1)}
 
 /* Light: palm shadows and window glow cast over the page by the real sun */
 .light{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;opacity:0;transition:opacity 2.2s ease}
@@ -226,7 +266,7 @@ footer button:hover{opacity:.62}
 .shade{position:absolute;inset:0;opacity:var(--sh-o,0);mix-blend-mode:multiply;color:var(--sh-c,#3A4458);transition:opacity 1.2s ease}
 .fronds{position:absolute;inset:-12% -12% -12% -12%}
 .sway{position:absolute;inset:0;transform-origin:92% 0;will-change:transform;animation:sway var(--sw-d,11s) ease-in-out infinite alternate}
-.cast{position:absolute;inset:0;transform-origin:92% 0;transform:rotate(var(--sh-r,0deg)) scaleY(var(--sh-sy,1));filter:blur(var(--sh-b,4px))}
+.cast{position:absolute;inset:0;transform-origin:92% 0;will-change:transform;transform:rotate(var(--sh-r,0deg)) scaleY(var(--sh-sy,1));filter:blur(var(--sh-b,4px))}
 .cast svg{display:block;width:100%;height:100%}
 /* The second pair of fronds hangs farther from the wall: softer, fainter, and quicker in the wind */
 .sway.b{animation-duration:calc(var(--sw-d,11s)*.64);animation-delay:-3s;opacity:.8}
@@ -246,10 +286,14 @@ main{position:relative;z-index:1}
   .work .what{grid-column:1 / -1;grid-row:2}
   .work .url{font-size:13px}
   footer{flex-direction:column;align-items:flex-start;gap:12px}
+  footer svg{margin-top:0}
   .fronds{transform:translate(34%,-16%) scale(.95)}
 }
 /* While the sun is being dragged or a day is playing, nothing eases: every frame is already the right one */
 html.fast *{transition:none!important}
+/* While the sky travels, it is drawn frame by frame; nothing on the page should ease on top of it */
+html.gliding body,html.gliding .glow,html.gliding .shade,html.gliding .haze{transition:none!important}
+html.gliding .links a{transition:transform .25s ease!important}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}.play{display:none}.sway{animation:none}}
 </style>
 </head>
@@ -267,7 +311,6 @@ html.fast *{transition:none!important}
   <h1>Mason Chambers builds things in Los Angeles.</h1>
   <p class="intro">Products, apps, designs, services and small tools made end to end.</p>
   <ul class="links" aria-label="Links">
-    <li><a href="https://github.com/chambersmason"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>GitHub</a></li>
     <li><a href="https://www.linkedin.com/in/mason-chambers/"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.064 2.064 0 1 1 0-4.128 2.064 2.064 0 0 1 0 4.128zM7.119 20.452H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>LinkedIn</a></li>
     <li><a href="https://x.com/mason_compsci"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z"/></svg>X</a></li>
     <li><a href="mailto:mason@masonchambers.com"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3.5 6.5 12 13l8.5-6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>Email</a></li>
@@ -337,12 +380,20 @@ html.fast *{transition:none!important}
 })();
 (function(){
   var sun=window.__sun, DAY=864e5, W=132, H=40, MID=20;
+  /* Wind speed and the clock read the way the visitor reads them, whichever city they are looking at */
+  var LANG=(navigator.languages&&navigator.languages[0])||navigator.language||'en-US', MPH=/^en$/i.test(LANG)||/-(US|GB|LR|MM)\b/i.test(LANG), H24=false;
+  try{H24=new Intl.DateTimeFormat(LANG,{hour:'numeric'}).resolvedOptions().hourCycle==='h23'}catch(e){}
   var svg=document.getElementById('skyarc'), arcA=document.getElementById('arcA'), arcB=document.getElementById('arcB'), dot=document.getElementById('dot');
   var line=document.getElementById('sunline'), tonight=document.getElementById('tonight'), btn=document.querySelector('.play');
   var reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
-  var here=window.__place, tz=here.tz;
-  var clock=new Intl.DateTimeFormat('en-US',{timeZone:tz,hour:'numeric',minute:'2-digit'});
-  var parts=new Intl.DateTimeFormat('en-US',{timeZone:tz,year:'numeric',month:'numeric',day:'numeric',hour:'numeric',minute:'numeric',second:'numeric',hourCycle:'h23'});
+  /* Cubic Bézier easing, as in CSS. Each kind of change has its own curve and pace: light leads, then cloud, then rain. */
+  function bz(x1,y1,x2,y2){return function(x){
+    if(x<=0)return 0;if(x>=1)return 1;var t=x;
+    for(var i=0;i<8;i++){var u=1-t, f=3*x1*t*u*u+3*x2*t*t*u+t*t*t-x, d=3*x1*u*u+6*(x2-x1)*t*u+3*(1-x2)*t*t;
+      if(Math.abs(f)<1e-5)break;t=Math.max(0,Math.min(1,t-f/(d||1e-6)))}
+    var v=1-t;return 3*y1*t*v*v+3*y2*t*t*v+t*t*t}}
+  var CITY=bz(.65,0,.35,1), CLOUD=bz(.4,0,.2,1), REFRESH=bz(.37,0,.63,1), RAIN_IN=bz(.55,0,.8,.4), RAIN_OUT=bz(.2,.6,.3,1), RAIN_EASE=bz(.4,0,.2,1);
+  var here, tz, clock, parts, day0, arcY, drawnY=null, dotAt=[0,MID];
   function hm(t){return clock.format(new Date(t)).replace(' AM',' am').replace(' PM',' pm')}
 
   function offset(t){var p={};parts.formatToParts(new Date(t)).forEach(function(x){p[x.type]=+x.value});
@@ -350,12 +401,25 @@ html.fast *{transition:none!important}
   function startOfDay(t){var p={};parts.formatToParts(new Date(t)).forEach(function(x){p[x.type]=+x.value});
     var guess=Date.UTC(p.year,p.month-1,p.day);return guess-offset(guess-offset(guess))}
 
-  var day0=startOfDay(Date.now());
   function y(a){return MID-a/90*(H/2+6)}
+  /* Everything that depends on where the sky is: the clock, the local day, and the shape of today's sun arc. */
+  function setHere(p){
+    here=p; tz=p.tz;
+    clock=new Intl.DateTimeFormat('en-US',{timeZone:tz,hour:'numeric',minute:'2-digit',hourCycle:H24?'h23':'h12'});
+    parts=new Intl.DateTimeFormat('en-US',{timeZone:tz,year:'numeric',month:'numeric',day:'numeric',hour:'numeric',minute:'numeric',second:'numeric',hourCycle:'h23'});
+    day0=startOfDay(Date.now()); arcY=[];
+    for(var i=0;i<=144;i++) arcY.push(y(sun.altitude(day0+i*DAY/144)));
+    if(window.__page) window.__page.day0=day0;
+  }
+  function drawArc(ys){
+    if(ys===drawnY) return; var d='';
+    for(var i=0;i<ys.length;i++) d+=(i?'L':'M')+(i/144*W).toFixed(2)+' '+ys[i].toFixed(2);
+    arcA.setAttribute('d',d);arcB.setAttribute('d',d);drawnY=ys;
+  }
+  setHere(window.__place); drawArc(arcY);
   function pt(t){var f=((t-day0)%DAY+DAY)%DAY/DAY;return [f*W,y(sun.altitude(day0+f*DAY))]}
-  var d='';for(var i=0;i<=144;i++){var tt=day0+i*DAY/144;d+=(i?'L':'M')+(i/144*W).toFixed(2)+' '+y(sun.altitude(tt)).toFixed(2)}
-  arcA.setAttribute('d',d);arcB.setAttribute('d',d);
-  function place(t){var p=pt(t);dot.setAttribute('cx',p[0].toFixed(2));dot.setAttribute('cy',p[1].toFixed(2))}
+  function setDot(p){dotAt=p;dot.setAttribute('cx',p[0].toFixed(2));dot.setAttribute('cy',p[1].toFixed(2))}
+  function place(t){if(!introing||playing||scrubbing)setDot(pt(t))}     /* the opening sweep of the dot owns it for its first second */
 
   /* ---- the real sky: /sky.json?p=local is the weather where the visitor is (or Santa Monica), today's hours and a sunset forecast ---- */
   var data=null, override=null, frozen=null;
@@ -381,40 +445,131 @@ html.fast *{transition:none!important}
     else if(w.low>.8) c='Low cloud'; else if(tot>.85) c='Overcast';
     else if(w.high>.3&&w.low+w.mid<.25) c='High thin cloud';
     else if(tot>.4) c='Partly cloudy'; else if(tot>.12) c='Mostly clear'; else c='Clear';
-    var m=Math.round(w.wind), b=m<3?'still air':m<9?m+' mph breeze':m<18?m+' mph wind':'gusty, '+m+' mph';
+    var m=Math.round(w.wind), v=MPH?m+' mph':Math.round(w.wind*1.609)+' km/h', b=m<3?'still air':m<9?v+' breeze':m<18?v+' wind':'gusty, '+v;
     return c+', '+b+'. ';
   }
-  function esc(x){return String(x).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
-  function words(t,r,w){
+  function sunSays(t,r){
     var a=r.alt, n=Math.abs(Math.round(a)), up=sun.altitude(t+6e5)>a, s;
     if(a>=1.5) s='The sun is '+n+'° up and '+(up?'rising':'setting')+'.';
     else if(a>=-1) s='The sun is on the horizon.';
     else if(a>-6) s='The sun is just below the horizon.';
     else if(r.moon.alt>2) s='Moonlight from a '+(r.moon.lit>.97?'full':r.moon.lit<.03?'new':(r.moon.waxing?'waxing':'waning'))+' moon, '+Math.round(r.moon.lit*100)+'% lit.';
     else s='The moon is down.';
-    return (here.local?'Your sky in ':'')+esc(here.name)+', <span class="tnum">'+hm(t)+'</span>. '+(w?conditions(w):'')+s;
+    return s;
+  }
+  /* The sky line, built once: "Your sky in [Chicago], 7:46 pm. Clear, still air. The sun is 4° up and setting."
+     The city is the control. Only the parts that change fade: the place and time together, or the weather. The clock just ticks. */
+  function el(tag,cls){var e=document.createElement(tag);if(cls)e.className=cls;return e}
+  var where=el('span','where'), tPre=el('span'), city=el('button','city'), field=el('input','cityfield'), tTime=el('span','tnum'), tCond=el('span'), tSun=el('span');
+  city.type='button';
+  field.type='text';field.hidden=true;field.placeholder='City';field.autocomplete='off';field.spellcheck=false;
+  field.setAttribute('autocapitalize','words');field.setAttribute('enterkeyhint','go');field.setAttribute('aria-label','Show the sky in another city');
+  field.setAttribute('role','combobox');field.setAttribute('aria-autocomplete','list');field.setAttribute('aria-controls','picks');field.setAttribute('aria-expanded','false');
+  where.append(tPre,city,field,', ',tTime,'. ');
+  line.textContent='';line.append(where,tCond,tSun);
+  var picks=el('span','picks');picks.id='picks';picks.setAttribute('role','listbox');picks.hidden=true;line.after(picks);
+  function fade(e,fn){
+    if(reduce||window.__fast){if(e._f){e._f=null}fn();return}
+    if(e._f){e._f=fn;return}
+    e._f=fn;e.style.transition='opacity 160ms cubic-bezier(.2,0,0,1)';e.style.opacity='0';
+    setTimeout(function(){var f=e._f;e._f=null;if(f)f();e.style.transition='opacity 280ms cubic-bezier(.2,0,0,1)';e.style.opacity='1'},160);
+  }
+  /* A new city changes the whole sentence and the forecast under it, so they fade out together, change while unseen, and come back */
+  var swapping=0, fcT=null;
+  function swap(){
+    if(reduce||window.__fast){syncAll();return}
+    if(swapping) return; swapping=1;
+    [line,tonight].forEach(function(e){e.style.transition='opacity 220ms cubic-bezier(.4,0,1,1)';e.style.opacity='0'});
+    setTimeout(function(){swapping=0;syncAll();
+      [line,tonight].forEach(function(e){e.style.transition='opacity 520ms cubic-bezier(.2,0,0,1)';e.style.opacity='1'})},230);
+  }
+  function syncAll(){syncWhere();tCond.textContent=has.cond=want.cond;tSun.textContent=want.ss;if(fcT!=null){var t=fcT;fcT=null;forecast(t)}}
+  var want={}, has={};
+  function syncWhere(){tPre.textContent=want.pre;city.textContent=want.nm;city.setAttribute('aria-label',want.nm+'. Change city');tTime.textContent=want.tm;has.key=want.key}
+  function text(t,r,w){
+    var tw=window.__fast?Math.round(t/6e5)*6e5:t;
+    want.pre=here.chosen?'The sky in ':here.local?'Your sky in ':'';
+    want.nm=here.name; want.tm=hm(tw); want.key=here.lat+','+here.lon+','+want.pre; want.cond=w?conditions(w):'';
+    want.ss=sunSays(tw,r);
+    if(has.key==null){syncAll();return}
+    if(swapping||want.key!==has.key){swap();return}
+    if(tTime.textContent!==want.tm) tTime.textContent=want.tm;
+    if(want.cond!==has.cond){has.cond=want.cond;fade(tCond,function(){tCond.textContent=want.cond})}
+    if(tSun.textContent!==want.ss) fade(tSun,function(){tSun.textContent=want.ss});
   }
   var RAMP=[[7.5,'#FF6A45,#FF9A62,#D9799B,#6C6FA3'],[5.5,'#FF8E5A,#FFB57E,#E2A0A8,#8C93B5'],[3.5,'#F4B98A,#F3D2B0,#D9CFD2,#A9B4C6'],[2,'#D8C2A8,#D5CEC6,#BFC3C8,#A3ABB5'],[-1,'#B7BABD,#AEB2B6,#9EA3A9,#8E949B']];
   function forecast(t){
+    if(swapping){fcT=t;return}
     var ss=override&&override.sunset?override.sunset:nextSunset(t);
     if(!ss){if(!tonight.hidden)tonight.hidden=true;lastFc='';return}
     if(t>ss.t+40*6e4) ss={t:ss.t+DAY,score:ss.score,label:ss.label,why:ss.why};
     var ramp=RAMP.filter(function(x){return ss.score>=x[0]})[0][1];
     var when=ss.t<startOfDay(t)+DAY?'Tonight\u2019s sunset':'Tomorrow’s sunset';
     var fc='<i class="swatch" style="background:linear-gradient(90deg,'+ramp+')"></i>'+when+', <span class="tnum">'+hm(ss.t)+'</span>: '+ss.label+'. '+ss.why+'.';
-    if(fc!==lastFc){lastFc=fc;tonight.hidden=false;tonight.innerHTML=fc}
+    if(fc!==lastFc){var was=tonight.hidden;lastFc=fc;tonight.hidden=false;tonight.innerHTML=fc;
+      if(was&&has.key!=null&&!reduce&&!window.__fast){tonight.style.transition='none';tonight.style.opacity='0';void tonight.offsetWidth;tonight.style.transition='opacity 520ms cubic-bezier(.2,0,0,1)';tonight.style.opacity='1'}}
   }
-  var lastTxt='', lastFc='';
+  var lastFc='';
   function fast(on){window.__fast=on;document.documentElement.classList.toggle('fast',!!on)}
   /* Make it rain: the visitor can ask for rain whatever the real sky is doing. Light cloud comes with it, so the palms still cast a shadow.
      The sky line keeps reporting the real weather. Remembered for this visit only. */
   var forced=false; try{forced=sessionStorage.getItem('mc_rain')==='1'}catch(e){}
   function wet(w){var b=w||sun.CLEAR;return {low:Math.max(b.low,.3),mid:b.mid,high:b.high,wind:b.wind,gust:b.gust,rain:Math.max(b.rain,3.2),vis:b.vis,score:b.score}}
+  var shown=null, G=null, graf=0, curT=Date.now(), pendingPlay=0, introing=0;
   function render(t){
-    var w=weatherAt(t), r=sun.apply(t,forced?wet(w):(w||undefined));
-    place(t); var tw=window.__fast?Math.round(t/6e5)*6e5:t, txt=words(tw,r,w); if(txt!==lastTxt){lastTxt=txt;line.innerHTML=txt}
-    forecast(t); rain.set(r.sky.rain,r.sky.wind>12?1:r.sky.wind/12);
+    curT=t;
+    var w=weatherAt(t), we=forced?wet(w):(w||sun.CLEAR), pos=sun.position(t), mn=sun.moon(t), r, k=sun.sky(we);
+    if(G){r={alt:pos.alt,az:pos.az,moon:mn}; if(!graf) graf=requestAnimationFrame(gstep)}     /* a glide is painting the light */
+    else{r=sun.paint(pos,mn,we); shown={alt:r.alt,az:r.az,moon:mn,w:we}; drawArc(arcY); place(t)}
+    text(t,r,w); forecast(t); rain.set(k.rain,k.wind>12?1:k.wind/12,!!window.__fast);
+    if(rainBtn&&rain.ok){var pour=!forced&&!!w&&w.rain>=3.2; if(rainBtn.hidden!==pour) rainBtn.hidden=pour}     /* it is already pouring */
     return r;
+  }
+
+  /* ---- glides: when the city, the weather or the rain changes, the sky travels there instead of cutting.
+     What moves is the sky itself (the sun's height and bearing, the moon, each layer of weather), and every frame is lit
+     exactly as a real sky in that state would be, so a day-to-night switch passes through one real dusk. ---- */
+  function lerp(a,b,e){return a+(b-a)*e}
+  /* The sun's height travels on a scale that slows near the horizon, so a jump from noon to midnight lingers in one real dusk */
+  function lerpAlt(a,b,e){var A=Math.atan((a+5)/4), B=Math.atan((b+5)/4);return 4*Math.tan(A+(B-A)*e)-5}
+  function lerpAz(a,b,e){var d=((b-a)%360+540)%360-180;return ((a+d*e)%360+360)%360}
+  function lerpW(a,b,e){
+    var o={}; ['low','mid','high','wind','gust','rain','vis'].forEach(function(f){o[f]=lerp(a[f],b[f],e)});
+    o.score=a.score!=null&&b.score!=null?lerp(a.score,b.score,e):(e<.5?a.score:b.score); return o;
+  }
+  /* Two glides can run at once and never undo each other: the sky (sun, moon, arc and dot) and the weather.
+     A city change moves both; rain and fresh weather move only the weather, so the sun keeps its course. */
+  function al(v){return (MID-v)*90/(H/2+6)}
+  function chan(o,f){return {f:f,t0:performance.now()+(o.delay||0),dur:o.dur,c:o.curve,k:0}}
+  function glide(o){
+    if(reduce||!shown){G=null;return false}
+    G=G||{};
+    if(o.sky!==false) G.sky=chan(o,{alt:shown.alt,az:shown.az,m:shown.moon,ys:(drawnY||arcY).slice(),dot:dotAt.slice()});
+    if(o.wx!==false) G.wx=chan(o,shown.w);
+    document.documentElement.classList.add('gliding');
+    if(!graf) graf=requestAnimationFrame(gstep);
+    return true;
+  }
+  function prog(c,ts){if(!c)return 1;c.k=Math.max(0,Math.min(1,(ts-c.t0)/c.dur));return c.c(c.k)}
+  function gstep(ts){
+    graf=0; if(!G){document.documentElement.classList.remove('gliding');return}
+    var c=G.sky, x=G.wx, es=prog(c,ts), ew=prog(x,ts), t=curT;
+    var w=weatherAt(t), we=forced?wet(w):(w||sun.CLEAR), pos=sun.position(t), mn=sun.moon(t), P=pos, M=mn, f;
+    /* Below -18° every night looks the same, so the sun's height travels from there: no part of the glide is spent unseen */
+    if(c){f=c.f;P={alt:c.k>=1?pos.alt:lerpAlt(Math.max(f.alt,-18),Math.max(pos.alt,-18),es),az:lerpAz(f.az,pos.az,es)};
+      M={alt:lerp(f.m.alt,mn.alt,es),az:lerpAz(f.m.az,mn.az,es),lit:lerp(f.m.lit,mn.lit,es),waxing:es<.5?f.m.waxing:mn.waxing}}
+    var W2=x?lerpW(x.f,we,ew):we, was=window.__fast; window.__fast=true; window.__tw=c&&c.k<1?Math.min(1,8*es*(1-es)):was?1:0;
+    var r=sun.paint(P,M,W2); window.__fast=was; window.__tw=null;
+    shown={alt:r.alt,az:r.az,moon:M,w:W2};
+    if(c){
+      /* The arc reshapes on the same height scale as the light, and the dot rides it */
+      var ys=f.ys.map(function(v,i){return y(lerpAlt(al(v),al(arcY[i]),es))}), to=pt(t), dx=lerp(f.dot[0],to[0],es), u=dx/W*144, i0=Math.min(143,Math.floor(u));
+      drawArc(ys); setDot([dx,lerp(ys[i0],ys[i0+1],u-i0)]);
+    }else{drawArc(arcY);place(t)}
+    if(c&&c.k>=1){G.sky=null;if(pendingPlay&&G.wx)startPlay()}     /* a waiting day starts as soon as the sun lands */
+    if(x&&x.k>=1)G.wx=null;
+    if(G.sky||G.wx) graf=requestAnimationFrame(gstep);
+    else{G=null;document.documentElement.classList.remove('gliding');if(pendingPlay)startPlay();else if(!playing&&!scrubbing)now()}
   }
 
   /* ---- rain, drawn only as shadow: drops on a window pane, cast across the page ---- */
@@ -425,7 +580,7 @@ html.fast *{transition:none!important}
     var cv=document.createElement('canvas'); cv.className='glass'; cv.setAttribute('aria-hidden','true'); document.body.appendChild(cv);
     var hm=document.createElement('canvas'), hx=hm.getContext('2d'), mist=document.createElement('canvas'), mx=mist.getContext('2d'),
         trail=document.createElement('canvas'), tx=trail.getContext('2d');
-    var k=0, on=0, W=0, H=0, S=1, drops=[], last=0, gl=null, U={}, tex=null, idle=0, wind=0;
+    var k=0, kt=0, kw=null, on=0, W=0, H=0, S=1, drops=[], last=0, gl=null, U={}, tex=null, idle=0, wind=0;
     var sp=document.createElement('canvas'); sp.width=sp.height=64;
     (function(){var c=sp.getContext('2d'), g=c.createRadialGradient(32,32,0,32,32,32);
       g.addColorStop(0,'rgba(255,255,255,1)');g.addColorStop(.42,'rgba(255,255,255,.74)');g.addColorStop(1,'rgba(255,255,255,0)');c.fillStyle=g;c.fillRect(0,0,64,64)})();
@@ -560,16 +715,18 @@ html.fast *{transition:none!important}
         if(st<1.03) blob(hx,d.x,d.y,d.r,1); else {hx.save();hx.translate(d.x,d.y);hx.rotate(rot);blob(hx,0,-(st-1)*d.r*.7,d.r,st);hx.restore()}}
       hx.globalAlpha=1;
       if(!gl) return;
-      var dark=document.documentElement.style.colorScheme==='dark';
+      var dk=typeof window.__dk==='number'?window.__dk:(document.documentElement.style.colorScheme==='dark'?1:0);
       gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,hm);
-      gl.uniform2f(U.px,1/hm.width,1/hm.height);gl.uniform1f(U.dk,dark?1:0);
-      if(dark)gl.uniform3f(U.sc,0,0,.02);else gl.uniform3f(U.sc,.17,.2,.27);
+      gl.uniform2f(U.px,1/hm.width,1/hm.height);gl.uniform1f(U.dk,dk);
+      gl.uniform3f(U.sc,.17*(1-dk),.2*(1-dk),.27-.25*dk);
       gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);gl.drawArrays(gl.TRIANGLES,0,3);
     }
     function frame(ts){
       if(!on) return;
+      if(kw){var p=(performance.now()-kw.t0)/kw.d; if(p>=0){k=p>=1?kw.b:kw.a+(kw.b-kw.a)*kw.c(p); if(p>=1)kw=null}}
       var dt=Math.min(.05,(ts-last)/1000||.016); last=ts; step(dt); draw();
-      if(k===0&&(idle+=dt)>9){on=0;drops=[];return}
+      /* When the rain stops the glass is left to dry on its own: no drop is wiped away mid-run. */
+      if(k===0){idle+=dt; if(idle>7) cv.style.opacity=0; if(idle>9){on=0;drops=[];return}} else if(idle){idle=0;cv.style.opacity=1}
       requestAnimationFrame(frame);
     }
     function start(){
@@ -581,9 +738,19 @@ html.fast *{transition:none!important}
       if(reduce){for(var i=0;i<240;i++)step(.05);draw();on=0;return}
       last=performance.now();requestAnimationFrame(frame);
     }
-    addEventListener('resize',function(){if(W){size();if(reduce&&k)start()}});
-    document.addEventListener('visibilitychange',function(){if(document.hidden)on=0;else if(k)start()});
-    return {ok:(function(){try{return !!document.createElement('canvas').getContext('webgl')}catch(e){return false}})(),set:function(v,w){v=Math.round(v*20)/20;wind=w||0;if(v===k)return;k=v;cv.style.opacity=k?1:0;if(tiltline&&!tiltOn)tiltline.hidden=!k;if(pill)pill.hidden=!k;if(k){idle=0;start()}}};
+    addEventListener('resize',function(){if(W){size();if(reduce&&kt)start()}});
+    document.addEventListener('visibilitychange',function(){if(document.hidden)on=0;else if(kt)start()});
+    return {ok:(function(){try{return !!document.createElement('canvas').getContext('webgl')}catch(e){return false}})(),set:function(v,w,now){
+      v=Math.round(v*20)/20;wind=w||0;if(v===kt)return;
+      /* Rain arrives as a few drops that build into a shower; it eases off quickly, then the glass dries. */
+      var a=k; kt=v;
+      if(now||reduce||!on&&!v){k=v;kw=null}
+      else if(v>a) kw={a:a,b:v,t0:performance.now()+(a<.01?400:0),d:a<.01?2800:1200,c:a<.01?RAIN_IN:RAIN_EASE};
+      else kw={a:a,b:v,t0:performance.now(),d:1600,c:RAIN_OUT};
+      if(tiltline&&!tiltOn)tiltline.hidden=!kt;if(pill)pill.hidden=!kt;
+      if(kt){idle=0;cv.style.opacity=1;start()}
+      else if(reduce||!on){cv.style.opacity=0;drops=[]}     /* nothing is animating, so the glass is cleared outright */
+    }};
   })();
 
   var rainBtn=document.querySelector('.rainbtn');
@@ -591,59 +758,161 @@ html.fast *{transition:none!important}
   if(!rain.ok){rainBtn.hidden=true;forced=false} else rainLabel();
   rainBtn.addEventListener('click',function(){
     forced=!forced; try{sessionStorage.setItem('mc_rain',forced?'1':'0')}catch(e){}
-    rainLabel(); if(!playing&&!scrubbing) now();
+    rainLabel();
+    /* Rain on: the cloud gathers first, then the drops. Rain off: the drops thin out, and the light comes back a moment later. */
+    glide(forced?{sky:false,dur:1400,curve:CLOUD}:{sky:false,dur:3200,delay:800,curve:CLOUD}); render(curT);
   });
 
   var playing=0, scrubbing=0, raf;
   function now(){render(frozen||Date.now())}
   now(); setInterval(function(){if(!playing&&!scrubbing)now()},30000);
 
+  /* The weather for the sky being shown: the visitor's own (or Santa Monica), or a city they picked. */
+  function skyUrl(p){return p.chosen?'/sky.json?lat='+p.lat+'&lon='+p.lon+'&tz='+encodeURIComponent(p.tz)+'&name='+encodeURIComponent(p.name):'/sky.json?p=local'}
+  function getSky(p,wait){
+    var f=fetch(skyUrl(p)).then(function(r){return r.ok?r.json():null}).then(function(j){return j&&j.ok&&j.now?j:null}).catch(function(){return null});
+    return wait?Promise.race([f,new Promise(function(res){setTimeout(function(){res(null)},wait)})]):f;
+  }
+  function keep(){try{localStorage.setItem('mc_sky',JSON.stringify({at:Date.now(),now:weatherAt(Date.now()),place:here.lat+','+here.lon}))}catch(e){}}
+  var seq=0;
   function load(){
-    fetch('/sky.json?p=local').then(function(r){return r.ok?r.json():null}).then(function(j){
-      if(!j||!j.ok||!j.now) return;
-      data=j;
-      try{var w=weatherAt(Date.now());localStorage.setItem('mc_sky',JSON.stringify({at:Date.now(),now:w,place:here.lat+','+here.lon}))}catch(e){}
-      if(!playing&&!scrubbing) now();
-    }).catch(function(){});
+    var my=seq, p=here;
+    getSky(p).then(function(j){
+      if(!j||my!==seq||p!==here) return;
+      data=j; keep();
+      glide({sky:false,dur:4000,curve:REFRESH}); render(playing||scrubbing?curT:frozen||Date.now());     /* fresh weather should go unnoticed */
+    });
   }
   load(); setInterval(load,10*6e4);
 
+  /* ---- the city picker: tap the city in the sky line, type a few letters, pick one ---- */
+  var rows=[], sel=0, timer=0, ctl=null, pickFirst=false;
+  function backRow(){var d=window.__detected;return here.chosen?[{back:true,label:d.local?'Back to your sky':'Back to '+d.name}]:[]}
+  function show(list,s0){
+    rows=list; sel=s0==null?0:s0; picks.textContent='';
+    rows.forEach(function(r,i){
+      var o=el('span','pick'+(r.none?' none':'')); o.id='pick-'+i; o.setAttribute('role','option');
+      if(r.none){o.textContent=r.label;o.setAttribute('aria-disabled','true')}
+      else{o.append(r.label);if(r.sub){var m=el('span','rg');m.textContent=', '+r.sub;o.append(m)}
+        o.addEventListener('pointerdown',function(e){e.preventDefault()});
+        o.addEventListener('pointermove',function(){if(sel!==i){sel=i;mark()}});
+        o.addEventListener('click',function(){choose(r,false)})}
+      picks.append(o);
+    });
+    picks.hidden=!rows.length; field.setAttribute('aria-expanded',rows.length?'true':'false'); mark();
+  }
+  function mark(){
+    for(var i=0;i<picks.children.length;i++) picks.children[i].setAttribute('aria-selected',i===sel&&!rows[i].none?'true':'false');
+    if(rows[sel]&&!rows[sel].none) field.setAttribute('aria-activedescendant','pick-'+sel); else field.removeAttribute('aria-activedescendant');
+  }
+  function search(){
+    timer=0; var q=field.value.trim(); if(ctl) ctl.abort(); ctl=null;
+    if(q.length<2){show(q?[]:backRow(),q?0:-1);pickFirst=false;return}
+    var c=ctl=typeof AbortController==='function'?new AbortController():null;
+    fetch('/places.json?q='+encodeURIComponent(q.split(',')[0].trim()),c?{signal:c.signal}:{}).then(function(r){return r.ok?r.json():null}).then(function(list){
+      if(c!==ctl||field.hidden) return;
+      show(!list?[{none:true,label:'Couldn\u2019t search just now'}]:list.length?list.map(function(x){return {label:x.name,sub:[x.region,x.country].filter(Boolean).join(', '),p:x}}):[{none:true,label:'No city by that name'}]);
+      if(pickFirst){pickFirst=false;if(rows[0]&&!rows[0].none)choose(rows[0],true)}
+    }).catch(function(e){if(c===ctl&&!field.hidden&&!(e&&e.name==='AbortError'))show([{none:true,label:'Couldn\u2019t search just now'}])});
+  }
+  var coarse=matchMedia('(pointer:coarse)').matches;
+  var bw=0;
+  function fit(){var n=Math.min(24,(coarse?Math.max(field.value.length,field.placeholder.length):field.value.length)+1);field.style.width='max('+bw+'px,'+n+'ch)'}
+  function open(){
+    if(scrubbing) return; if(playing||pendingPlay) btn.click();
+    field.value=''; field.placeholder=here.name; bw=Math.ceil(city.getBoundingClientRect().width); fit(); city.hidden=true; field.hidden=false; field.focus(); show(backRow(),-1);
+    if(coarse) setTimeout(function(){try{field.scrollIntoView({block:'center',behavior:reduce?'auto':'smooth'})}catch(e){}},250);
+  }
+  function close(refocus){
+    if(field.hidden) return; clearTimeout(timer); timer=0; pickFirst=false; if(ctl)ctl.abort(); ctl=null;
+    field.hidden=true; city.hidden=false; picks.hidden=true; field.setAttribute('aria-expanded','false'); if(refocus) city.focus();
+  }
+  function choose(r,kb){
+    close(kb);
+    var p=r.back?window.__detected:{lat:r.p.lat,lon:r.p.lon,name:r.p.name,tz:r.p.tz,local:false,chosen:true};
+    try{if(r.back)localStorage.removeItem('mc_place');else localStorage.setItem('mc_place',JSON.stringify({lat:p.lat,lon:p.lon,name:p.name,tz:p.tz}))}catch(e){}
+    travel(p);
+  }
+  /* Fetch the new city's weather first, then move everything at once: light, cloud, arc and dot, and the words. */
+  function travel(p){
+    var my=++seq;
+    line.classList.add('going');     /* the words dim at once, so the pick is acknowledged while the weather comes */
+    getSky(p,1500).then(function(j){
+      if(my!==seq) return;
+      line.classList.remove('going');
+      p=sun.setPlace(p); if(!p) return;
+      if(playing){cancelAnimationFrame(raf);playing=0;fast(0)} if(pendingPlay) pendingPlay=0; btn.textContent='Play a day';
+      if(scrubbing){scrubbing=0;fast(0);svg.classList.remove('held')}
+      frozen=null; setHere(p); data=j; if(j) keep(); else load();
+      var to=sun.position(Date.now()), d=shown?Math.abs(Math.max(to.alt,-18)-Math.max(shown.alt,-18)):99;
+      glide({dur:d<15?1600:2200,curve:CITY}); now();
+    });
+  }
+  city.addEventListener('click',open);
+  field.addEventListener('input',function(){fit();clearTimeout(timer);timer=setTimeout(search,200)});
+  /* A tap anywhere else puts the name back (iOS does not always blur the field on its own) */
+  var tap=null;
+  function outside(e){return !field.hidden&&e.target!==field&&!picks.contains(e.target)}
+  document.addEventListener('pointerdown',function(e){if(!outside(e))return;if(e.pointerType==='mouse')close(false);else tap={x:e.clientX,y:e.clientY,s:scrollY}});
+  document.addEventListener('pointerup',function(e){var t=tap;tap=null;if(t&&outside(e)&&Math.abs(e.clientX-t.x)<10&&Math.abs(e.clientY-t.y)<10&&Math.abs(scrollY-t.s)<4)close(false)});
+  field.addEventListener('keydown',function(e){
+    var n=rows.length, ok=rows[sel]&&!rows[sel].none;
+    if(e.key==='ArrowDown'||e.key==='ArrowUp'){if(n){var dn=e.key==='ArrowDown';sel=sel<0?(dn?0:n-1):(sel+(dn?1:n-1))%n;mark()}e.preventDefault()}
+    else if(e.key==='Enter'){e.preventDefault();if(timer){clearTimeout(timer);pickFirst=true;search()}else if(ok)choose(rows[sel],true)}
+    else if(e.key==='Tab'&&ok&&!timer&&field.value.trim()){e.preventDefault();choose(rows[sel],true)}
+    else if(e.key==='Escape'){e.preventDefault();close(true)}
+  });
+  field.addEventListener('blur',function(){close(false)});
+
   if(!reduce){
     var start=day0, end=Date.now(), t0=performance.now(), dur=1200;
-    (function intro(ts){var k=Math.min(1,(ts-t0)/dur), e=1-Math.pow(1-k,3);place(start+(end-start)*e);if(k<1)requestAnimationFrame(intro)})(t0);
+    introing=1;
+    (function intro(ts){var k=Math.min(1,(ts-t0)/dur), e=1-Math.pow(1-k,3);if(G&&G.sky||playing||scrubbing){introing=0;return}
+      if(k<1){setDot(pt(start+(end-start)*e));requestAnimationFrame(intro)}else{introing=0;place(frozen||Date.now())}})(t0);
   }
 
-  btn.addEventListener('click',function(){
-    if(playing){cancelAnimationFrame(raf);playing=0;fast(0);btn.textContent='Play a day';now();return}
-    playing=1;fast(1);btn.textContent='Stop';var lastF=0;
+  /* Play a day. Pressed while the sky is still travelling, it waits for the sky to land, then plays from there.
+     Stopped part way, the sky glides back to now rather than cutting. */
+  function startPlay(){
+    pendingPlay=0;playing=1;fast(1);btn.textContent='Stop';var lastF=0;
     var base=frozen||Date.now(), t0=performance.now(), dur=14000;
     (function step(ts){
       var k=Math.min(1,(ts-t0)/dur);
       if(ts-lastF>=30||k>=1){lastF=ts;render(base+k*DAY)}
-      if(k<1&&playing) raf=requestAnimationFrame(step); else {playing=0;fast(0);btn.textContent='Play a day';now()}
+      if(k<1&&playing) raf=requestAnimationFrame(step); else if(playing){playing=0;fast(0);btn.textContent='Play a day';now()}
     })(t0);
+  }
+  btn.addEventListener('click',function(){
+    if(pendingPlay){pendingPlay=0;btn.textContent='Play a day';return}
+    if(playing){cancelAnimationFrame(raf);playing=0;fast(0);btn.textContent='Play a day';glide({dur:1600,curve:CITY});now();return}
+    close(false);
+    if(G&&G.sky){pendingPlay=1;btn.textContent='Stop';return}
+    startPlay();
   });
 
   /* Drag the arc to move the sun through today. Let go and it returns to now. */
   var held=0;
   function at(e){var b=svg.getBoundingClientRect();return day0+Math.max(0,Math.min(.9999,(e.clientX-b.left)/b.width))*DAY}
   svg.addEventListener('pointerdown',function(e){
+    if(G&&G.sky){e.preventDefault();return}     /* the sky is still travelling; let it land */
+    if(pendingPlay){pendingPlay=0;btn.textContent='Play a day'}
     if(playing){cancelAnimationFrame(raf);playing=0;btn.textContent='Play a day'}
     scrubbing=1;fast(1);held=at(e);svg.setPointerCapture(e.pointerId);svg.classList.add('held');render(held);e.preventDefault()});
   svg.addEventListener('pointermove',function(e){if(scrubbing&&svg.hasPointerCapture(e.pointerId)){held=at(e);render(held)}});
   function release(){
     if(!scrubbing) return; svg.classList.remove('held');
     var from=held, to=frozen||Date.now(), t0=performance.now(), dur=reduce?0:700;
-    (function back(ts){var k=dur?Math.min(1,(ts-t0)/dur):1, e=1-Math.pow(1-k,3);render(from+(to-from)*e);
+    (function back(ts){if(!scrubbing)return;var k=dur?Math.min(1,(ts-t0)/dur):1, e=1-Math.pow(1-k,3);render(from+(to-from)*e);
       if(k<1) requestAnimationFrame(back); else {scrubbing=0;fast(0);now()}})(t0);
   }
   svg.addEventListener('pointerup',release); svg.addEventListener('pointercancel',release);
   svg.addEventListener('keydown',function(e){
     if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight') return;
-    frozen=(frozen||Date.now())+(e.key==='ArrowLeft'?-1:1)*15*6e4; now(); e.preventDefault()});
+    e.preventDefault(); if(G&&G.sky||playing||pendingPlay) return;
+    frozen=(frozen||Date.now())+(e.key==='ArrowLeft'?-1:1)*15*6e4; now()});
   svg.addEventListener('blur',function(){if(!window.__hold){frozen=null;now()}});
 
-  window.__page={render:render,now:now,set:function(w){override=w;now()},freeze:function(t){frozen=t;window.__hold=!!t;now()},day0:day0,data:function(){return data}};
+  window.__page={render:render,now:now,set:function(w){override=w;now()},freeze:function(t){frozen=t;window.__hold=!!t;now()},day0:day0,data:function(){return data},travel:function(p){p.chosen=true;travel(p)},glides:function(){return !!G}};
 })();
 </script>
 <style>
@@ -656,7 +925,7 @@ html.fast *{transition:none!important}
 .self.far{filter:blur(calc(9px + var(--sh-b,4px)*2.1));-webkit-mask-image:linear-gradient(to top,transparent 22%,#000 66%);mask-image:linear-gradient(to top,transparent 22%,#000 66%)}
 /* At night a shadow needs light to fall out of: a faint wash of moonlight comes up behind it while someone is casting one. */
 .wash{position:absolute;inset:0;pointer-events:none;opacity:0;mix-blend-mode:screen;transition:opacity 1.6s ease;background:radial-gradient(130% 100% at 72% 0%,#A9BBD8,#6F82A6 55%,transparent 115%)}
-.castnote{display:block;margin-top:6px}
+.castnote{display:block;margin-top:6px}.castnote[hidden]{display:none}
 </style>
 <script>
 (function(){
@@ -676,14 +945,15 @@ html.fast *{transition:none!important}
     S.wind=parseFloat(cs.getPropertyValue('--sw'))||1;
     var src=r.alt>-2?{alt:r.alt,az:r.az}:(r.moon&&r.moon.alt>0?{alt:r.moon.alt,az:r.moon.az}:null);
     if(src){var a=Math.max(src.alt,4);S.len=22+86*(1-ease(a/55));S.dx=-Math.sin(src.az*R)*S.len;S.dy=S.len*.62;
-      S.skew=Math.max(-24,Math.min(24,(src.az-180)*.24));S.sy=1+Math.min(.6,.12/Math.tan(Math.max(src.alt,3)*R))}
+      S.skew=Math.max(-24,Math.min(24,.27*Math.asin(-Math.sin(src.az*R))/R));S.sy=1+Math.min(.6,.12/Math.tan(Math.max(src.alt,3)*R))}
     else{S.len=16;S.dx=0;S.dy=14;S.skew=0;S.sy=1.1}
     /* While someone is casting a shadow, palm and figure share one strength, with a floor so there is something to see at night or under cloud. */
-    dark=r.dark; S.o=r.dark?Math.max(.6,o):Math.min(.5,Math.max(.2,o*2));
-    S.po=r.dark?Math.max(.34,o*1.1):Math.min(.5,Math.max(.1,o*2.4));
+    var dk=r.dk!=null?r.dk:(r.dark?1:0); dark=dk;
+    S.o=Math.min(.5,Math.max(.2,o*2))+(Math.max(.6,o)-Math.min(.5,Math.max(.2,o*2)))*dk;
+    S.po=Math.min(.5,Math.max(.1,o*2.4))+(Math.max(.34,o*1.1)-Math.min(.5,Math.max(.1,o*2.4)))*dk;
     paint();
   }
-  var orig=sun.apply; sun.apply=function(t,w){var r=orig(t,w);try{relight(r)}catch(e){}return r};
+  sun.onpaint=function(r){try{relight(r)}catch(e){}};
 
   var px=-200,py=-200,tx=-200,ty=-200,shown=0,cam=0,hideT=0,raf=0;
   var reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -695,7 +965,7 @@ html.fast *{transition:none!important}
     /* Same light as the fronds: leaning with the sun's bearing, stretching as it gets low. */
     var t='translateX(-50%) scaleX(-1) skewX('+(S.skew*.8).toFixed(1)+'deg) scaleY('+S.sy.toFixed(3)+')';
     near.style.transform=far.style.transform=t; near.style.opacity=far.style.opacity=cam?1:0;
-    shade.style.opacity=cam?S.o.toFixed(3):''; wash.style.opacity=cam&&dark?.17:0;
+    shade.style.opacity=cam?S.o.toFixed(3):''; wash.style.opacity=cam?(.17*dark).toFixed(3):0;
   }
   function tick(){raf=0;var k=reduce?1:.22;px+=(tx-px)*k;py+=(ty-py)*k;paint();if(Math.abs(tx-px)+Math.abs(ty-py)>.4)raf=requestAnimationFrame(tick)}
   function move(e){
@@ -709,14 +979,14 @@ html.fast *{transition:none!important}
   /* Camera shadow, only after the visitor asks. Frames are segmented on the device and never stored or sent anywhere. */
   var controls=document.querySelector('footer .controls'), btn=document.createElement('button'), note=document.createElement('span');
   btn.type='button'; btn.className='castbtn'; btn.textContent='Cast your shadow'; controls.appendChild(btn);
-  note.className='castnote'; note.textContent='The shadow uses your camera. The video never leaves your device.'; controls.after(note);
+  note.className='castnote'; note.hidden=true; controls.after(note);
   var video=null, stream=null, seg=null, loop=0, busy=0, cx=null, cx2=null, img=null, flip=null, soft=null, was=null, stir=0, stirT=0;
-  function say(t){note.textContent=t}
+  function say(t){note.textContent=t;note.hidden=!t}
   function stop(msg){
     cam=0; cancelAnimationFrame(loop); loop=0; busy=0; stir=stirT=0; fronds.style.removeProperty('--sw');
     if(stream){stream.getTracks().forEach(function(t){t.stop()});stream=null}
     if(video){video.srcObject=null}
-    btn.textContent='Cast your shadow'; btn.disabled=false; say(msg||'The shadow uses your camera. The video never leaves your device.'); paint();
+    btn.textContent='Cast your shadow'; btn.disabled=false; say(msg||''); paint();
   }
   function draw(f,w,h){
     var n=w*h, i, j;
@@ -747,7 +1017,7 @@ html.fast *{transition:none!important}
   }
   function start(){
     if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){say('The camera isn’t available in this browser. Try opening the page in Safari or Chrome.');return}
-    btn.disabled=true; say('Asking for the camera…');
+    btn.disabled=true; say('Asking for the camera. The video never leaves your device.');
     navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:480},height:{ideal:360}},audio:false}).then(function(s){
       stream=s; if(!video){video=document.createElement('video');video.muted=true;video.playsInline=true;video.setAttribute('playsinline','')}
       video.srcObject=s; say('Loading…');
